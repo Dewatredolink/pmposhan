@@ -14,7 +14,6 @@ export const t: Record<string, Record<Lang, string>> = {
   schoolCalendar: { en: 'School Calendar', mr: 'शाळा कॅलेंडर' },
   masterData: { en: 'Master Data', mr: 'मास्टर डेटा' },
   customReports: { en: 'Custom Excel Reports', mr: 'सानुकूल Excel अहवाल' },
-  workbookRegisters: { en: 'Registers & Workbook Reports', mr: 'नोंदवही व अधिकृत अहवाल' },
   reports: { en: 'Reports', mr: 'अहवाल' },
   alerts: { en: 'Alerts', mr: 'सूचना' },
   students: { en: 'Students', mr: 'विद्यार्थी' },
