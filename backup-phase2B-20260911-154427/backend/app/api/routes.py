@@ -1,5 +1,4 @@
 from datetime import date, datetime, timezone
-from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -13,14 +12,10 @@ from app.models import (
     District,
     Ingredient,
     Menu,
-    Recipe,
     School,
     SchoolProfile,
     Translation,
     UserSchoolAccess,
-    StockReceipt,
-    StockReceiptLine,
-    StockTransaction,
 )
 from app.schemas.operations import (
     AttendanceInput,
@@ -30,7 +25,6 @@ from app.schemas.operations import (
     VerifyInput,
 )
 from app.schemas.org import DistrictOut, SchoolOut
-from app.schemas.inventory import StockOpeningInput, StockReceiptInput
 
 router = APIRouter()
 
@@ -68,97 +62,6 @@ def _school_or_404(db: Session, school_id: str) -> School:
     if not school or not school.active:
         raise HTTPException(status_code=404, detail="School not found")
     return school
-
-
-
-def _stock_balance(db: Session, school_id: str, ingredient_id: str) -> Decimal:
-    value = db.scalar(
-        select(func.coalesce(func.sum(StockTransaction.quantity), 0)).where(
-            StockTransaction.school_id == school_id,
-            StockTransaction.ingredient_id == ingredient_id,
-        )
-    )
-    return Decimal(str(value or 0))
-
-
-def _recipe_consumption(db: Session, meal: DailyMealEntry):
-    rows = db.scalars(
-        select(Recipe).where(
-            Recipe.menu_id == meal.menu_id,
-            Recipe.active.is_(True),
-            Recipe.effective_from <= meal.meal_date,
-            (Recipe.effective_to.is_(None) | (Recipe.effective_to >= meal.meal_date)),
-        )
-    ).all()
-    consumption: dict[str, Decimal] = {}
-    for r in rows:
-        qty = Decimal("0")
-        per_student = Decimal(str(r.qty_per_student))
-        if r.student_group == "CLASS_1_5":
-            qty = per_student * meal.meals_class_1_5
-        elif r.student_group == "CLASS_6_8":
-            qty = per_student * meal.meals_class_6_8
-        elif r.student_group == "ALL":
-            qty = per_student * meal.total_meals
-        if qty > 0:
-            consumption[r.ingredient_id] = consumption.get(r.ingredient_id, Decimal("0")) + qty
-    return consumption
-
-
-def _post_verified_meal_consumption(db: Session, meal: DailyMealEntry, user: CurrentUser):
-    existing = db.scalars(
-        select(StockTransaction).where(
-            StockTransaction.school_id == meal.school_id,
-            StockTransaction.reference_type == "DAILY_MEAL",
-            StockTransaction.reference_id == meal.id,
-            StockTransaction.transaction_type == "CONSUMPTION",
-        )
-    ).all()
-    if existing:
-        return existing
-
-    consumption = _recipe_consumption(db, meal)
-    if not consumption:
-        raise HTTPException(status_code=400, detail="No active recipe is configured for the selected menu/date")
-
-    shortages = []
-    for ingredient_id, required in consumption.items():
-        ingredient = db.get(Ingredient, ingredient_id)
-        if not ingredient or not ingredient.track_inventory:
-            continue
-        available = _stock_balance(db, meal.school_id, ingredient_id)
-        if available < required:
-            shortages.append((ingredient, required, available))
-    if shortages:
-        detail = "; ".join(
-            f"{ingredient.name_en}: required {required} {ingredient.base_unit}, available {available} {ingredient.base_unit}"
-            for ingredient, required, available in shortages
-        )
-        raise HTTPException(status_code=409, detail=f"Insufficient stock - {detail}")
-
-    posted = []
-    for ingredient_id, required in consumption.items():
-        ingredient = db.get(Ingredient, ingredient_id)
-        if not ingredient or not ingredient.track_inventory:
-            continue
-        row = StockTransaction(
-            school_id=meal.school_id,
-            ingredient_id=ingredient_id,
-            transaction_date=meal.meal_date,
-            transaction_type="CONSUMPTION",
-            quantity=-required,
-            reference_type="DAILY_MEAL",
-            reference_id=meal.id,
-            reference_no=f"MEAL-{meal.meal_date.isoformat()}",
-            remarks=f"Auto consumption for {meal.total_meals} verified meals",
-            entered_by_subject=user.subject,
-            entered_by_username=user.username,
-            created_by=user.username,
-        )
-        db.add(row)
-        posted.append(row)
-    db.flush()
-    return posted
 
 
 def _attendance_dict(row: DailyAttendance | None):
@@ -206,7 +109,7 @@ def _meal_dict(row: DailyMealEntry | None):
 
 @router.get("/health")
 def health():
-    return {"status": "ok", "service": "pmposhan-api", "phase": "2B"}
+    return {"status": "ok", "service": "pmposhan-api", "phase": "2A"}
 
 
 @router.get("/me")
@@ -532,169 +435,13 @@ def verify_daily_operations(
     if not meal.tasting_done or not meal.hygiene_ok:
         raise HTTPException(status_code=400, detail="Tasting and hygiene checks must be complete")
     now = datetime.now(timezone.utc)
-    posted = _post_verified_meal_consumption(db, meal, user)
     for row in (attendance, meal):
         row.status = "VERIFIED"
         row.verified_by_subject = user.subject
         row.verified_by_username = user.username
         row.verified_at = now
     db.commit()
-    return {
-        "ok": True,
-        "status": "VERIFIED",
-        "verified_by": user.username,
-        "verified_at": now,
-        "stock_consumption_transactions": len(posted),
-    }
-
-
-@router.post("/stock/opening-balance")
-def create_opening_balance(
-    payload: StockOpeningInput,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(get_current_user),
-):
-    _school_or_404(db, payload.school_id)
-    _assert_school_access(db, user, payload.school_id, write=True)
-    if not (user.roles & {"HEADMASTER", "SYSTEM_ADMIN"}):
-        raise HTTPException(status_code=403, detail="Headmaster or System Admin role required for opening balance")
-    ing = db.get(Ingredient, payload.ingredient_id)
-    if not ing or not ing.active or not ing.track_inventory:
-        raise HTTPException(status_code=400, detail="Invalid inventory ingredient")
-    existing_count = db.scalar(select(func.count(StockTransaction.id)).where(
-        StockTransaction.school_id == payload.school_id, StockTransaction.ingredient_id == payload.ingredient_id
-    )) or 0
-    if existing_count:
-        raise HTTPException(status_code=409, detail="Opening balance is allowed only before any transaction exists for this ingredient")
-    row = StockTransaction(
-        school_id=payload.school_id, ingredient_id=payload.ingredient_id, transaction_date=payload.opening_date,
-        transaction_type="OPENING", quantity=payload.quantity, reference_type="OPENING_BALANCE",
-        reference_id=f"{payload.school_id}:{payload.ingredient_id}", reference_no="OPENING", remarks=payload.remarks,
-        entered_by_subject=user.subject, entered_by_username=user.username, created_by=user.username,
-    )
-    db.add(row); db.commit(); db.refresh(row)
-    return {"ok": True, "id": row.id, "quantity": float(row.quantity), "unit": ing.base_unit}
-
-
-@router.get("/stock/balances")
-def stock_balances(
-    school_id: str,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(get_current_user),
-):
-    _school_or_404(db, school_id)
-    _assert_school_access(db, user, school_id)
-    ingredients = db.scalars(
-        select(Ingredient).where(Ingredient.active.is_(True), Ingredient.track_inventory.is_(True)).order_by(Ingredient.name_en)
-    ).all()
-    totals = dict(db.execute(
-        select(StockTransaction.ingredient_id, func.coalesce(func.sum(StockTransaction.quantity), 0))
-        .where(StockTransaction.school_id == school_id)
-        .group_by(StockTransaction.ingredient_id)
-    ).all())
-    result = []
-    for ing in ingredients:
-        balance = Decimal(str(totals.get(ing.id, 0) or 0))
-        reorder = Decimal(str(ing.reorder_level or 0))
-        result.append({
-            "ingredient_id": ing.id, "code": ing.code, "name_en": ing.name_en, "name_mr": ing.name_mr,
-            "unit": ing.base_unit, "balance": float(balance), "reorder_level": float(reorder),
-            "low_stock": balance <= reorder if reorder > 0 else False,
-        })
-    return result
-
-
-@router.get("/stock/ledger")
-def stock_ledger(
-    school_id: str,
-    ingredient_id: str | None = None,
-    from_date: date | None = None,
-    to_date: date | None = None,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(get_current_user),
-):
-    _school_or_404(db, school_id)
-    _assert_school_access(db, user, school_id)
-    q = select(StockTransaction).where(StockTransaction.school_id == school_id)
-    if ingredient_id:
-        q = q.where(StockTransaction.ingredient_id == ingredient_id)
-    if from_date:
-        q = q.where(StockTransaction.transaction_date >= from_date)
-    if to_date:
-        q = q.where(StockTransaction.transaction_date <= to_date)
-    rows = db.scalars(q.order_by(StockTransaction.transaction_date.desc(), StockTransaction.created_at.desc())).all()
-    return [{
-        "id": r.id, "transaction_date": r.transaction_date, "transaction_type": r.transaction_type,
-        "ingredient_id": r.ingredient_id, "ingredient_code": r.ingredient.code if r.ingredient else None,
-        "ingredient_name_en": r.ingredient.name_en if r.ingredient else None,
-        "ingredient_name_mr": r.ingredient.name_mr if r.ingredient else None,
-        "unit": r.ingredient.base_unit if r.ingredient else None, "quantity": float(r.quantity),
-        "reference_type": r.reference_type, "reference_no": r.reference_no, "remarks": r.remarks,
-        "entered_by_username": r.entered_by_username,
-    } for r in rows]
-
-
-@router.get("/stock/receipts")
-def stock_receipts(
-    school_id: str,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(get_current_user),
-):
-    _school_or_404(db, school_id)
-    _assert_school_access(db, user, school_id)
-    rows = db.scalars(
-        select(StockReceipt).where(StockReceipt.school_id == school_id).order_by(StockReceipt.receipt_date.desc(), StockReceipt.created_at.desc())
-    ).all()
-    return [{
-        "id": r.id, "receipt_date": r.receipt_date, "receipt_no": r.receipt_no, "source_name": r.source_name,
-        "remarks": r.remarks, "entered_by_username": r.entered_by_username,
-        "lines": [{
-            "ingredient_id": ln.ingredient_id, "ingredient_name_en": ln.ingredient.name_en if ln.ingredient else None,
-            "ingredient_name_mr": ln.ingredient.name_mr if ln.ingredient else None, "unit": ln.ingredient.base_unit if ln.ingredient else None,
-            "quantity": float(ln.quantity), "unit_cost": float(ln.unit_cost) if ln.unit_cost is not None else None,
-        } for ln in r.lines]
-    } for r in rows]
-
-
-@router.post("/stock/receipts")
-def create_stock_receipt(
-    payload: StockReceiptInput,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(get_current_user),
-):
-    _school_or_404(db, payload.school_id)
-    _assert_school_access(db, user, payload.school_id, write=True)
-    if not (user.roles & {"TEACHER", "HEADMASTER", "SYSTEM_ADMIN"}):
-        raise HTTPException(status_code=403, detail="Teacher, Headmaster or System Admin role required")
-    duplicate = db.scalar(select(StockReceipt).where(
-        StockReceipt.school_id == payload.school_id, StockReceipt.receipt_no == payload.receipt_no
-    ))
-    if duplicate:
-        raise HTTPException(status_code=409, detail="Receipt number already exists for this school")
-    for line in payload.lines:
-        ing = db.get(Ingredient, line.ingredient_id)
-        if not ing or not ing.active or not ing.track_inventory:
-            raise HTTPException(status_code=400, detail=f"Invalid inventory ingredient: {line.ingredient_id}")
-    receipt = StockReceipt(
-        school_id=payload.school_id, receipt_date=payload.receipt_date, receipt_no=payload.receipt_no,
-        source_name=payload.source_name, remarks=payload.remarks, entered_by_subject=user.subject,
-        entered_by_username=user.username, created_by=user.username,
-    )
-    db.add(receipt)
-    db.flush()
-    for line in payload.lines:
-        db.add(StockReceiptLine(
-            receipt_id=receipt.id, ingredient_id=line.ingredient_id, quantity=line.quantity, unit_cost=line.unit_cost,
-            created_by=user.username,
-        ))
-        db.add(StockTransaction(
-            school_id=payload.school_id, ingredient_id=line.ingredient_id, transaction_date=payload.receipt_date,
-            transaction_type="RECEIPT", quantity=line.quantity, reference_type="STOCK_RECEIPT", reference_id=receipt.id,
-            reference_no=payload.receipt_no, remarks=payload.remarks or payload.source_name,
-            entered_by_subject=user.subject, entered_by_username=user.username, created_by=user.username,
-        ))
-    db.commit()
-    return {"ok": True, "id": receipt.id, "receipt_no": receipt.receipt_no, "lines": len(payload.lines)}
+    return {"ok": True, "status": "VERIFIED", "verified_by": user.username, "verified_at": now}
 
 
 @router.get("/dashboard-summary")

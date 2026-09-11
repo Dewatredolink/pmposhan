@@ -1,10 +1,7 @@
 from datetime import date
 from sqlalchemy import select
 from app.db.session import SessionLocal, Base, engine
-from app.models import (
-    District, Block, Cluster, School, AcademicYear, Translation, Menu, Ingredient, Recipe,
-    UserSchoolAccess, SchoolProfile, StockTransaction
-)
+from app.models import District, Block, Cluster, School, AcademicYear, Translation, Menu, Ingredient, UserSchoolAccess, SchoolProfile
 
 TRANSLATIONS = [
     ("app.title", "PM POSHAN", "पीएम पोषण"),
@@ -58,35 +55,6 @@ INGREDIENTS = [
     ("FUEL","Fuel Cost","इंधन खर्च","OTHER","INR",False),
 ]
 
-
-# Demo/configurable recipe quantities in the ingredient base unit per student.
-# These values are sample system configuration for testing, not a claim of official entitlement norms.
-RECIPE_BASE = {
-    "RICE": (0.100, 0.150),
-    "OIL": (0.005, 0.0075),
-    "SALT": (0.002, 0.003),
-}
-MENU_EXTRAS = {
-    "VPUL-W13-MON": [("VATANA", 0.020, 0.030)],
-    "MDKH-W13-TUE": [("MOONGDAL", 0.020, 0.030)],
-    "CHPUL-W13-WED": [("HARBHARA", 0.020, 0.030)],
-    "MBHAT-W13-THU": [("TURDAL", 0.020, 0.030)],
-    "CHKH-W13-FRI": [("CHAWLI", 0.020, 0.030)],
-    "MUSAL-W13-SAT": [("MATKI", 0.035, 0.050)],
-    "MTPUL-W24-MON": [("VATANA", 0.020, 0.030)],
-    "MDVB-W24-TUE": [("MOONGDAL", 0.020, 0.030)],
-    "SOYP-W24-WED": [("SOYA", 0.020, 0.030)],
-    "VPUL-W24-THU": [("VATANA", 0.020, 0.030)],
-    "MDKH-W24-FRI": [("MOONGDAL", 0.020, 0.030)],
-    "MASP-W24-SAT": [("MASOORDAL", 0.020, 0.030)],
-}
-DEMO_OPENING = {
-    "RICE": 200, "MOONGDAL": 40, "TURDAL": 40, "MASOORDAL": 40, "MATKI": 40,
-    "MOONG": 30, "CHAWLI": 40, "HARBHARA": 40, "VATANA": 40, "SOYA": 40,
-    "CUMIN": 10, "MUSTARD": 10, "TURMERIC": 10, "GARAM": 10, "OIL": 50,
-    "SALT": 40, "SUGAR": 30, "MILK": 20, "RAGI": 30, "EGG": 500,
-}
-
 def main():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
@@ -118,51 +86,8 @@ def main():
             if not db.scalar(select(Menu).where(Menu.code == code)):
                 db.add(Menu(code=code,name_en=en,name_mr=mr,week_pattern=wp,day_of_week=dow))
         for code,en,mr,cat,unit,track in INGREDIENTS:
-            ing = db.scalar(select(Ingredient).where(Ingredient.code == code))
-            if not ing:
-                ing = Ingredient(code=code,name_en=en,name_mr=mr,category=cat,base_unit=unit,track_inventory=track)
-                db.add(ing); db.flush()
-            if track and float(ing.reorder_level or 0) == 0:
-                ing.reorder_level = 5 if unit != "EA" else 50
-
-        # Seed demo recipe configuration for every menu, separately for Classes 1-5 and 6-8.
-        menus_by_code = {m.code: m for m in db.scalars(select(Menu)).all()}
-        ingredients_by_code = {i.code: i for i in db.scalars(select(Ingredient)).all()}
-        for menu_code, menu in menus_by_code.items():
-            recipe_items = [(code, q15, q68) for code, (q15, q68) in RECIPE_BASE.items()] + MENU_EXTRAS.get(menu_code, [])
-            for ing_code, q15, q68 in recipe_items:
-                ing = ingredients_by_code.get(ing_code)
-                if not ing:
-                    continue
-                for group, qty in (("CLASS_1_5", q15), ("CLASS_6_8", q68)):
-                    exists = db.scalar(select(Recipe).where(
-                        Recipe.menu_id == menu.id, Recipe.ingredient_id == ing.id,
-                        Recipe.student_group == group, Recipe.effective_from == date(2026,4,1)
-                    ))
-                    if not exists:
-                        db.add(Recipe(
-                            menu_id=menu.id, ingredient_id=ing.id, student_group=group,
-                            qty_per_student=qty, measurement_unit=ing.base_unit, effective_from=date(2026,4,1),
-                            version=1, active=True, created_by="seed"
-                        ))
-
-        # Demo opening stock for SAMPLE001 only. It is idempotent and intended for local testing.
-        for ing_code, qty in DEMO_OPENING.items():
-            ing = ingredients_by_code.get(ing_code)
-            if not ing or not ing.track_inventory:
-                continue
-            exists = db.scalar(select(StockTransaction).where(
-                StockTransaction.school_id == school.id, StockTransaction.ingredient_id == ing.id,
-                StockTransaction.reference_type == "SEED_OPENING", StockTransaction.reference_id == "SAMPLE001-2026"
-            ))
-            if not exists:
-                db.add(StockTransaction(
-                    school_id=school.id, ingredient_id=ing.id, transaction_date=date(2026,4,1),
-                    transaction_type="OPENING", quantity=qty, reference_type="SEED_OPENING",
-                    reference_id="SAMPLE001-2026", reference_no="DEMO-OPENING-2026",
-                    remarks="Demo opening stock for local Phase 2B testing",
-                    entered_by_subject="seed", entered_by_username="seed", created_by="seed"
-                ))
+            if not db.scalar(select(Ingredient).where(Ingredient.code == code)):
+                db.add(Ingredient(code=code,name_en=en,name_mr=mr,category=cat,base_unit=unit,track_inventory=track))
         profile = db.scalar(select(SchoolProfile).where(SchoolProfile.school_id == school.id))
         if not profile:
             db.add(SchoolProfile(

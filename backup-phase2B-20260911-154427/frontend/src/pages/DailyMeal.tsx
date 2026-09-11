@@ -70,9 +70,8 @@ export default function DailyMeal({lang, schools, schoolId, setSchoolId}:Props){
     try{
       const r = await apiFetch('/daily-operations/verify',{method:'POST',body:JSON.stringify({school_id:schoolId,meal_date:date})});
       if(!r.ok) throw new Error(await r.text());
-      const result = await r.json();
       await loadDaily(false);
-      setMessage(lang==='mr'?`मुख्याध्यापक पडताळणी पूर्ण. साठा वापराच्या ${result.stock_consumption_transactions ?? 0} नोंदी तयार झाल्या.`:`Headmaster verification completed. ${result.stock_consumption_transactions ?? 0} stock consumption entries posted.`);
+      setMessage(lang==='mr'?'मुख्याध्यापक पडताळणी पूर्ण.':'Headmaster verification completed.');
     }catch(e){ setMessage(String(e)); } finally{ setBusy(false); }
   }
 

@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react';
 import Dashboard from './pages/Dashboard';
 import DailyMeal from './pages/DailyMeal';
 import SchoolProfile from './pages/SchoolProfile';
-import StockReceipt from './pages/StockReceipt';
-import StockRegister from './pages/StockRegister';
 import { Lang, t } from './i18n/translations';
 import { apiFetch, keycloak, realmRoles } from './auth';
 import './styles.css';
@@ -47,8 +45,8 @@ export default function App(){
   if(page==='dashboard') body=<Dashboard lang={lang} schoolId={schoolId}/>;
   else if(page==='schoolProfile') body=<SchoolProfile lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
   else if(page==='dailyMeal') body=<DailyMeal lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
-  else if(page==='stockReceipt') body=<StockReceipt lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
-  else if(page==='stockRegister') body=<StockRegister lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
+  else if(page==='stockReceipt') body=placeholder(tr('stockReceipt'),'Phase 2B');
+  else if(page==='stockRegister') body=placeholder(tr('stockRegister'),'Phase 2B');
   else if(page==='monthlyVerification') body=placeholder(tr('monthlyVerification'),'Phase 2C');
   else body=placeholder(tr('reports'),'Phase 2C');
 
