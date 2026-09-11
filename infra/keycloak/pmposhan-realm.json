@@ -1,0 +1,64 @@
+{
+  "realm": "pmposhan",
+  "enabled": true,
+  "displayName": "PM POSHAN",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": true,
+  "roles": {
+    "realm": [
+      {"name": "TEACHER"},
+      {"name": "HEADMASTER"},
+      {"name": "CLUSTER_OFFICER"},
+      {"name": "BLOCK_OFFICER"},
+      {"name": "DISTRICT_OFFICER"},
+      {"name": "SYSTEM_ADMIN"}
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "pmposhan-web",
+      "name": "PM POSHAN Web",
+      "publicClient": true,
+      "protocol": "openid-connect",
+      "redirectUris": ["http://localhost:5173/*"],
+      "webOrigins": ["http://localhost:5173"],
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "attributes": {
+        "pkce.code.challenge.method": "S256"
+      }
+    }
+  ],
+  "users": [
+    {
+      "id": "11111111-1111-1111-1111-111111111111",
+      "username": "teacher.demo",
+      "enabled": true,
+      "email": "teacher.demo@example.invalid",
+      "firstName": "Demo",
+      "lastName": "Teacher",
+      "credentials": [{"type": "password", "value": "Teacher@123", "temporary": false}],
+      "realmRoles": ["TEACHER"]
+    },
+    {
+      "id": "22222222-2222-2222-2222-222222222222",
+      "username": "headmaster.demo",
+      "enabled": true,
+      "email": "headmaster.demo@example.invalid",
+      "firstName": "Demo",
+      "lastName": "Headmaster",
+      "credentials": [{"type": "password", "value": "Headmaster@123", "temporary": false}],
+      "realmRoles": ["HEADMASTER"]
+    },
+    {
+      "id": "33333333-3333-3333-3333-333333333333",
+      "username": "admin.demo",
+      "enabled": true,
+      "email": "admin.demo@example.invalid",
+      "firstName": "System",
+      "lastName": "Administrator",
+      "credentials": [{"type": "password", "value": "Admin@123", "temporary": false}],
+      "realmRoles": ["SYSTEM_ADMIN"]
+    }
+  ]
+}
