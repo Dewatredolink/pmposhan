@@ -8,7 +8,7 @@ export const t: Record<string, Record<Lang, string>> = {
   stockReceipt: { en: 'Stock Receipt', mr: 'साठा प्राप्ती' },
   stockRegister: { en: 'Stock Register', mr: 'साठा नोंदवही' },
   stockControls: { en: 'Stock Controls', mr: 'साठा नियंत्रण' },
-  monthlyVerification: { en: 'Hierarchy & Monthly Returns', mr: 'श्रेणी व मासिक परतावा' },
+  monthlyVerification: { en: 'Monthly Verification', mr: 'मासिक पडताळणी' },
   reports: { en: 'Reports', mr: 'अहवाल' },
   alerts: { en: 'Alerts', mr: 'सूचना' },
   students: { en: 'Students', mr: 'विद्यार्थी' },

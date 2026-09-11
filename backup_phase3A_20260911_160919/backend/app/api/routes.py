@@ -1,5 +1,4 @@
 from datetime import date, datetime, timezone
-from calendar import monthrange
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,8 +11,6 @@ from app.models import (
     DailyAttendance,
     DailyMealEntry,
     District,
-    Block,
-    Cluster,
     Ingredient,
     Menu,
     Recipe,
@@ -21,9 +18,6 @@ from app.models import (
     SchoolProfile,
     Translation,
     UserSchoolAccess,
-    UserOrgAccess,
-    MonthlySchoolReturn,
-    MonthlyReturnAction,
     StockReceipt,
     StockReceiptLine,
     StockTransaction,
@@ -42,7 +36,6 @@ from app.schemas.org import DistrictOut, SchoolOut
 from app.schemas.inventory import (
     StockOpeningInput, StockReceiptInput, StockAdjustmentInput, PhysicalStockVerificationInput,
 )
-from app.schemas.monthly import MonthlyGenerateInput, MonthlyActionInput, OrgAccessInput
 
 router = APIRouter()
 
@@ -59,44 +52,19 @@ def _school_access_rows(db: Session, user: CurrentUser):
     ).all()
 
 
-def _accessible_school_ids(db: Session, user: CurrentUser) -> list[str]:
-    if "SYSTEM_ADMIN" in user.roles:
-        return list(db.scalars(select(School.id).where(School.active.is_(True))).all())
-
-    ids: set[str] = set()
-    school_ids = db.scalars(
-        select(UserSchoolAccess.school_id).where(
-            UserSchoolAccess.keycloak_subject == user.subject,
-            UserSchoolAccess.active.is_(True),
-            UserSchoolAccess.school_id.is_not(None),
-        )
-    ).all()
-    ids.update(str(x) for x in school_ids if x)
-
-    org_rows = db.scalars(
-        select(UserOrgAccess).where(
-            UserOrgAccess.keycloak_subject == user.subject,
-            UserOrgAccess.active.is_(True),
-        )
-    ).all()
-    for row in org_rows:
-        q = select(School.id).join(Cluster, School.cluster_id == Cluster.id).join(Block, Cluster.block_id == Block.id).where(School.active.is_(True))
-        if row.cluster_id:
-            q = q.where(School.cluster_id == row.cluster_id)
-        elif row.block_id:
-            q = q.where(Cluster.block_id == row.block_id)
-        elif row.district_id:
-            q = q.where(Block.district_id == row.district_id)
-        else:
-            continue
-        ids.update(str(x) for x in db.scalars(q).all())
-    return sorted(ids)
-
-
 def _assert_school_access(db: Session, user: CurrentUser, school_id: str, write: bool = False):
+    if user.roles & OFFICER_ROLES:
+        return
     if write and not (user.roles & SCHOOL_ENTRY_ROLES):
         raise HTTPException(status_code=403, detail="Role cannot edit school operations")
-    if school_id not in _accessible_school_ids(db, user):
+    access = db.scalar(
+        select(UserSchoolAccess).where(
+            UserSchoolAccess.keycloak_subject == user.subject,
+            UserSchoolAccess.school_id == school_id,
+            UserSchoolAccess.active.is_(True),
+        )
+    )
+    if not access:
         raise HTTPException(status_code=403, detail="No access to this school")
 
 
@@ -243,7 +211,7 @@ def _meal_dict(row: DailyMealEntry | None):
 
 @router.get("/health")
 def health():
-    return {"status": "ok", "service": "pmposhan-api", "phase": "3A"}
+    return {"status": "ok", "service": "pmposhan-api", "phase": "2C"}
 
 
 @router.get("/me")
@@ -274,10 +242,18 @@ def list_districts(db: Session = Depends(get_db), _: CurrentUser = Depends(get_c
 
 @router.get("/schools", response_model=list[SchoolOut])
 def list_schools(db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
-    school_ids = _accessible_school_ids(db, user)
-    if not school_ids:
-        return []
-    base = select(School).where(School.active.is_(True), School.id.in_(school_ids))
+    base = select(School).where(School.active.is_(True))
+    if not (user.roles & OFFICER_ROLES):
+        school_ids = db.scalars(
+            select(UserSchoolAccess.school_id).where(
+                UserSchoolAccess.keycloak_subject == user.subject,
+                UserSchoolAccess.active.is_(True),
+                UserSchoolAccess.school_id.is_not(None),
+            )
+        ).all()
+        if not school_ids:
+            return []
+        base = base.where(School.id.in_(school_ids))
     return list(db.scalars(base.order_by(School.name_en)).all())
 
 
@@ -1008,453 +984,3 @@ def dashboard_summary(
 @router.get("/admin/security-check")
 def security_check(_: CurrentUser = Depends(require_roles("SYSTEM_ADMIN"))):
     return {"ok": True, "message": "SYSTEM_ADMIN access confirmed"}
-
-
-def _role_for_action(user: CurrentUser) -> str:
-    for role in ("SYSTEM_ADMIN", "DISTRICT_OFFICER", "BLOCK_OFFICER", "CLUSTER_OFFICER", "HEADMASTER", "TEACHER"):
-        if role in user.roles:
-            return role
-    return "USER"
-
-
-def _return_dict(row: MonthlySchoolReturn):
-    school = row.school
-    cluster = school.cluster if school else None
-    block = cluster.block if cluster else None
-    district = block.district if block else None
-    actions = sorted(row.actions or [], key=lambda x: x.acted_at)
-    return {
-        "id": row.id,
-        "school_id": row.school_id,
-        "school_code": school.code if school else None,
-        "udise_code": school.udise_code if school else None,
-        "school_name_en": school.name_en if school else None,
-        "school_name_mr": school.name_mr if school else None,
-        "cluster_name_en": cluster.name_en if cluster else None,
-        "cluster_name_mr": cluster.name_mr if cluster else None,
-        "block_name_en": block.name_en if block else None,
-        "block_name_mr": block.name_mr if block else None,
-        "district_name_en": district.name_en if district else None,
-        "district_name_mr": district.name_mr if district else None,
-        "year": row.year,
-        "month": row.month,
-        "recorded_days": row.recorded_days,
-        "verified_days": row.verified_days,
-        "incomplete_days": row.incomplete_days,
-        "attendance_class_1_5": row.attendance_class_1_5,
-        "attendance_class_6_8": row.attendance_class_6_8,
-        "meals_class_1_5": row.meals_class_1_5,
-        "meals_class_6_8": row.meals_class_6_8,
-        "total_meals": row.total_meals,
-        "tasting_exception_days": row.tasting_exception_days,
-        "hygiene_exception_days": row.hygiene_exception_days,
-        "status": row.status,
-        "generated_by_username": row.generated_by_username,
-        "generated_at": row.generated_at,
-        "submitted_by_username": row.submitted_by_username,
-        "submitted_at": row.submitted_at,
-        "cluster_reviewed_by": row.cluster_reviewed_by,
-        "cluster_reviewed_at": row.cluster_reviewed_at,
-        "block_approved_by": row.block_approved_by,
-        "block_approved_at": row.block_approved_at,
-        "return_reason": row.return_reason,
-        "actions": [
-            {
-                "action": a.action,
-                "from_status": a.from_status,
-                "to_status": a.to_status,
-                "actor_username": a.actor_username,
-                "actor_role": a.actor_role,
-                "remarks": a.remarks,
-                "acted_at": a.acted_at,
-            }
-            for a in actions
-        ],
-    }
-
-
-def _append_return_action(db: Session, row: MonthlySchoolReturn, user: CurrentUser, action: str, from_status: str | None, to_status: str, remarks: str | None = None):
-    db.add(MonthlyReturnAction(
-        monthly_return_id=row.id,
-        action=action,
-        from_status=from_status,
-        to_status=to_status,
-        actor_subject=user.subject,
-        actor_username=user.username,
-        actor_role=_role_for_action(user),
-        remarks=remarks,
-        acted_at=datetime.now(timezone.utc),
-        created_by=user.username,
-    ))
-
-
-def _monthly_metrics(db: Session, school_id: str, year: int, month: int):
-    first = date(year, month, 1)
-    last = date(year, month, monthrange(year, month)[1])
-    attendance_rows = db.scalars(
-        select(DailyAttendance).where(
-            DailyAttendance.school_id == school_id,
-            DailyAttendance.meal_date >= first,
-            DailyAttendance.meal_date <= last,
-        )
-    ).all()
-    meal_rows = db.scalars(
-        select(DailyMealEntry).where(
-            DailyMealEntry.school_id == school_id,
-            DailyMealEntry.meal_date >= first,
-            DailyMealEntry.meal_date <= last,
-        )
-    ).all()
-    attendance_by_date = {r.meal_date: r for r in attendance_rows}
-    meal_by_date = {r.meal_date: r for r in meal_rows}
-    recorded_dates = set(attendance_by_date) | set(meal_by_date)
-    verified_dates = {
-        d for d in recorded_dates
-        if d in attendance_by_date and d in meal_by_date
-        and attendance_by_date[d].status == "VERIFIED"
-        and meal_by_date[d].status == "VERIFIED"
-    }
-    verified_attendance = [attendance_by_date[d] for d in verified_dates]
-    verified_meals = [meal_by_date[d] for d in verified_dates]
-    return {
-        "recorded_days": len(recorded_dates),
-        "verified_days": len(verified_dates),
-        "incomplete_days": len(recorded_dates - verified_dates),
-        "attendance_class_1_5": sum(r.class_1_5_present for r in verified_attendance),
-        "attendance_class_6_8": sum(r.class_6_8_present for r in verified_attendance),
-        "meals_class_1_5": sum(r.meals_class_1_5 for r in verified_meals),
-        "meals_class_6_8": sum(r.meals_class_6_8 for r in verified_meals),
-        "total_meals": sum(r.total_meals for r in verified_meals),
-        "tasting_exception_days": sum(1 for r in meal_rows if not r.tasting_done),
-        "hygiene_exception_days": sum(1 for r in meal_rows if not r.hygiene_ok),
-    }
-
-
-@router.get("/hierarchy/scope")
-def hierarchy_scope(db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
-    school_ids = _accessible_school_ids(db, user)
-    schools = []
-    if school_ids:
-        rows = db.scalars(
-            select(School).where(School.id.in_(school_ids)).order_by(School.name_en)
-        ).all()
-        for school in rows:
-            cluster = school.cluster
-            block = cluster.block if cluster else None
-            district = block.district if block else None
-            schools.append({
-                "school_id": school.id,
-                "school_code": school.code,
-                "udise_code": school.udise_code,
-                "school_name_en": school.name_en,
-                "school_name_mr": school.name_mr,
-                "cluster_id": cluster.id if cluster else None,
-                "cluster_name_en": cluster.name_en if cluster else None,
-                "cluster_name_mr": cluster.name_mr if cluster else None,
-                "block_id": block.id if block else None,
-                "block_name_en": block.name_en if block else None,
-                "block_name_mr": block.name_mr if block else None,
-                "district_id": district.id if district else None,
-                "district_name_en": district.name_en if district else None,
-                "district_name_mr": district.name_mr if district else None,
-            })
-    org_access = db.scalars(select(UserOrgAccess).where(
-        UserOrgAccess.keycloak_subject == user.subject,
-        UserOrgAccess.active.is_(True),
-    )).all()
-    return {
-        "roles": sorted(user.roles),
-        "school_count": len(schools),
-        "schools": schools,
-        "org_access": [
-            {
-                "id": r.id,
-                "role": r.role,
-                "scope_key": r.scope_key,
-                "district_id": r.district_id,
-                "district_name_en": r.district.name_en if r.district else None,
-                "district_name_mr": r.district.name_mr if r.district else None,
-                "block_id": r.block_id,
-                "block_name_en": r.block.name_en if r.block else None,
-                "block_name_mr": r.block.name_mr if r.block else None,
-                "cluster_id": r.cluster_id,
-                "cluster_name_en": r.cluster.name_en if r.cluster else None,
-                "cluster_name_mr": r.cluster.name_mr if r.cluster else None,
-            }
-            for r in org_access
-        ],
-    }
-
-
-@router.get("/user-org-access")
-def list_user_org_access(
-    db: Session = Depends(get_db),
-    _: CurrentUser = Depends(require_roles("SYSTEM_ADMIN")),
-):
-    rows = db.scalars(select(UserOrgAccess).where(UserOrgAccess.active.is_(True)).order_by(UserOrgAccess.username, UserOrgAccess.role)).all()
-    return [{
-        "id": r.id,
-        "keycloak_subject": r.keycloak_subject,
-        "username": r.username,
-        "role": r.role,
-        "scope_key": r.scope_key,
-        "district_id": r.district_id,
-        "block_id": r.block_id,
-        "cluster_id": r.cluster_id,
-    } for r in rows]
-
-
-@router.post("/user-org-access")
-def create_user_org_access(
-    payload: OrgAccessInput,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(require_roles("SYSTEM_ADMIN")),
-):
-    allowed = {"CLUSTER_OFFICER", "BLOCK_OFFICER", "DISTRICT_OFFICER"}
-    if payload.role not in allowed:
-        raise HTTPException(status_code=400, detail="Role must be CLUSTER_OFFICER, BLOCK_OFFICER or DISTRICT_OFFICER")
-    chosen = [bool(payload.cluster_id), bool(payload.block_id), bool(payload.district_id)]
-    if sum(chosen) != 1:
-        raise HTTPException(status_code=400, detail="Exactly one hierarchy scope must be supplied")
-    expected = {
-        "CLUSTER_OFFICER": ("CLUSTER", payload.cluster_id),
-        "BLOCK_OFFICER": ("BLOCK", payload.block_id),
-        "DISTRICT_OFFICER": ("DISTRICT", payload.district_id),
-    }[payload.role]
-    if not expected[1]:
-        raise HTTPException(status_code=400, detail=f"{expected[0].lower()} scope is required for {payload.role}")
-    if payload.cluster_id and not db.get(Cluster, payload.cluster_id):
-        raise HTTPException(status_code=404, detail="Cluster not found")
-    if payload.block_id and not db.get(Block, payload.block_id):
-        raise HTTPException(status_code=404, detail="Block not found")
-    if payload.district_id and not db.get(District, payload.district_id):
-        raise HTTPException(status_code=404, detail="District not found")
-    scope_key = f"{expected[0]}:{expected[1]}"
-    existing = db.scalar(select(UserOrgAccess).where(
-        UserOrgAccess.keycloak_subject == payload.keycloak_subject,
-        UserOrgAccess.role == payload.role,
-        UserOrgAccess.scope_key == scope_key,
-    ))
-    if existing:
-        existing.active = True
-        existing.username = payload.username
-        row = existing
-    else:
-        row = UserOrgAccess(
-            keycloak_subject=payload.keycloak_subject,
-            username=payload.username,
-            role=payload.role,
-            scope_key=scope_key,
-            district_id=payload.district_id,
-            block_id=payload.block_id,
-            cluster_id=payload.cluster_id,
-            created_by=user.username,
-        )
-        db.add(row)
-    db.commit(); db.refresh(row)
-    return {"ok": True, "id": row.id, "scope_key": row.scope_key}
-
-
-@router.get("/monthly-returns")
-def list_monthly_returns(
-    year: int,
-    month: int,
-    school_id: str | None = None,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(get_current_user),
-):
-    if month < 1 or month > 12 or year < 2000 or year > 2200:
-        raise HTTPException(status_code=400, detail="Invalid year/month")
-    accessible = _accessible_school_ids(db, user)
-    if not accessible:
-        return []
-    if school_id:
-        _assert_school_access(db, user, school_id)
-        accessible = [school_id]
-    rows = db.scalars(
-        select(MonthlySchoolReturn)
-        .where(
-            MonthlySchoolReturn.school_id.in_(accessible),
-            MonthlySchoolReturn.year == year,
-            MonthlySchoolReturn.month == month,
-        )
-        .order_by(MonthlySchoolReturn.status, MonthlySchoolReturn.school_id)
-    ).all()
-    return [_return_dict(r) for r in rows]
-
-
-@router.get("/monthly-returns/summary")
-def monthly_returns_summary(
-    year: int,
-    month: int,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(get_current_user),
-):
-    if month < 1 or month > 12 or year < 2000 or year > 2200:
-        raise HTTPException(status_code=400, detail="Invalid year/month")
-    accessible = _accessible_school_ids(db, user)
-    total_schools = len(accessible)
-    counts = {"DRAFT": 0, "SUBMITTED": 0, "CLUSTER_REVIEWED": 0, "BLOCK_APPROVED": 0, "RETURNED": 0}
-    total_meals = 0
-    incomplete_returns = 0
-    if accessible:
-        rows = db.scalars(select(MonthlySchoolReturn).where(
-            MonthlySchoolReturn.school_id.in_(accessible),
-            MonthlySchoolReturn.year == year,
-            MonthlySchoolReturn.month == month,
-        )).all()
-        for r in rows:
-            counts[r.status] = counts.get(r.status, 0) + 1
-            total_meals += r.total_meals
-            if r.incomplete_days > 0 or r.tasting_exception_days > 0 or r.hygiene_exception_days > 0:
-                incomplete_returns += 1
-    else:
-        rows = []
-    return {
-        "year": year,
-        "month": month,
-        "total_schools": total_schools,
-        "returns_generated": len(rows),
-        "missing_returns": max(0, total_schools - len(rows)),
-        "status_counts": counts,
-        "total_meals": total_meals,
-        "exception_returns": incomplete_returns,
-    }
-
-
-@router.post("/monthly-returns/generate")
-def generate_monthly_return(
-    payload: MonthlyGenerateInput,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(require_roles("HEADMASTER", "SYSTEM_ADMIN")),
-):
-    _school_or_404(db, payload.school_id)
-    _assert_school_access(db, user, payload.school_id)
-    existing = db.scalar(select(MonthlySchoolReturn).where(
-        MonthlySchoolReturn.school_id == payload.school_id,
-        MonthlySchoolReturn.year == payload.year,
-        MonthlySchoolReturn.month == payload.month,
-    ))
-    if existing and existing.status not in {"DRAFT", "RETURNED"}:
-        raise HTTPException(status_code=409, detail="Submitted/reviewed return cannot be regenerated")
-    metrics = _monthly_metrics(db, payload.school_id, payload.year, payload.month)
-    now = datetime.now(timezone.utc)
-    row = existing or MonthlySchoolReturn(
-        school_id=payload.school_id,
-        year=payload.year,
-        month=payload.month,
-        generated_by_subject=user.subject,
-        generated_by_username=user.username,
-        generated_at=now,
-        created_by=user.username,
-    )
-    if not existing:
-        db.add(row)
-        db.flush()
-    previous = row.status if existing else None
-    for field, value in metrics.items():
-        setattr(row, field, value)
-    row.status = "DRAFT"
-    row.generated_by_subject = user.subject
-    row.generated_by_username = user.username
-    row.generated_at = now
-    row.return_reason = None
-    _append_return_action(db, row, user, "REGENERATE" if existing else "GENERATE", previous, "DRAFT")
-    db.commit(); db.refresh(row)
-    return _return_dict(row)
-
-
-@router.post("/monthly-returns/{return_id}/submit")
-def submit_monthly_return(
-    return_id: str,
-    payload: MonthlyActionInput,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(require_roles("HEADMASTER", "SYSTEM_ADMIN")),
-):
-    row = db.get(MonthlySchoolReturn, return_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Monthly return not found")
-    _assert_school_access(db, user, row.school_id)
-    if row.status not in {"DRAFT", "RETURNED"}:
-        raise HTTPException(status_code=409, detail="Only draft/returned monthly return can be submitted")
-    if row.verified_days <= 0:
-        raise HTTPException(status_code=400, detail="At least one verified daily operation is required")
-    if row.incomplete_days > 0 or row.tasting_exception_days > 0 or row.hygiene_exception_days > 0:
-        raise HTTPException(status_code=409, detail="Resolve incomplete daily entries and tasting/hygiene exceptions before submission")
-    previous = row.status
-    now = datetime.now(timezone.utc)
-    row.status = "SUBMITTED"
-    row.submitted_by_subject = user.subject
-    row.submitted_by_username = user.username
-    row.submitted_at = now
-    row.return_reason = None
-    _append_return_action(db, row, user, "SUBMIT", previous, row.status, payload.remarks)
-    db.commit(); db.refresh(row)
-    return _return_dict(row)
-
-
-@router.post("/monthly-returns/{return_id}/cluster-review")
-def cluster_review_monthly_return(
-    return_id: str,
-    payload: MonthlyActionInput,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(require_roles("CLUSTER_OFFICER", "SYSTEM_ADMIN")),
-):
-    row = db.get(MonthlySchoolReturn, return_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Monthly return not found")
-    _assert_school_access(db, user, row.school_id)
-    if row.status != "SUBMITTED":
-        raise HTTPException(status_code=409, detail="Return must be SUBMITTED before cluster review")
-    previous = row.status
-    row.status = "CLUSTER_REVIEWED"
-    row.cluster_reviewed_by = user.username
-    row.cluster_reviewed_at = datetime.now(timezone.utc)
-    _append_return_action(db, row, user, "CLUSTER_REVIEW", previous, row.status, payload.remarks)
-    db.commit(); db.refresh(row)
-    return _return_dict(row)
-
-
-@router.post("/monthly-returns/{return_id}/block-approve")
-def block_approve_monthly_return(
-    return_id: str,
-    payload: MonthlyActionInput,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(require_roles("BLOCK_OFFICER", "SYSTEM_ADMIN")),
-):
-    row = db.get(MonthlySchoolReturn, return_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Monthly return not found")
-    _assert_school_access(db, user, row.school_id)
-    if row.status != "CLUSTER_REVIEWED":
-        raise HTTPException(status_code=409, detail="Return must be CLUSTER_REVIEWED before block approval")
-    previous = row.status
-    row.status = "BLOCK_APPROVED"
-    row.block_approved_by = user.username
-    row.block_approved_at = datetime.now(timezone.utc)
-    _append_return_action(db, row, user, "BLOCK_APPROVE", previous, row.status, payload.remarks)
-    db.commit(); db.refresh(row)
-    return _return_dict(row)
-
-
-@router.post("/monthly-returns/{return_id}/return")
-def return_monthly_return(
-    return_id: str,
-    payload: MonthlyActionInput,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(require_roles("CLUSTER_OFFICER", "BLOCK_OFFICER", "SYSTEM_ADMIN")),
-):
-    row = db.get(MonthlySchoolReturn, return_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Monthly return not found")
-    _assert_school_access(db, user, row.school_id)
-    if row.status not in {"SUBMITTED", "CLUSTER_REVIEWED"}:
-        raise HTTPException(status_code=409, detail="Only submitted/reviewed return can be returned")
-    if not payload.remarks or not payload.remarks.strip():
-        raise HTTPException(status_code=400, detail="Return reason is required")
-    previous = row.status
-    row.status = "RETURNED"
-    row.return_reason = payload.remarks.strip()
-    _append_return_action(db, row, user, "RETURN", previous, row.status, payload.remarks)
-    db.commit(); db.refresh(row)
-    return _return_dict(row)

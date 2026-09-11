@@ -6,7 +6,6 @@ import StockReceipt from './pages/StockReceipt';
 import StockRegister from './pages/StockRegister';
 import StockControls from './pages/StockControls';
 import Reports from './pages/Reports';
-import HierarchyDashboard from './pages/HierarchyDashboard';
 import { Lang, t } from './i18n/translations';
 import { apiFetch, keycloak, realmRoles } from './auth';
 import './styles.css';
@@ -53,7 +52,7 @@ export default function App(){
   else if(page==='stockReceipt') body=<StockReceipt lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
   else if(page==='stockRegister') body=<StockRegister lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
   else if(page==='stockControls') body=<StockControls lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
-  else if(page==='monthlyVerification') body=<HierarchyDashboard lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
+  else if(page==='monthlyVerification') body=placeholder(tr('monthlyVerification'),'Phase 3');
   else body=<Reports lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
 
   return <div className="app">
