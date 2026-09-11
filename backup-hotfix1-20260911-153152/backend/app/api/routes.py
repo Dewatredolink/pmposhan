@@ -379,8 +379,6 @@ def save_daily_meal(
     if payload.meals_class_1_5 + payload.meals_class_6_8 > 0 and attendance:
         if payload.meals_class_1_5 > attendance.class_1_5_present or payload.meals_class_6_8 > attendance.class_6_8_present:
             raise HTTPException(status_code=400, detail="Meals served cannot exceed present students")
-    if payload.status == "SUBMITTED" and (not payload.tasting_done or not payload.hygiene_ok):
-        raise HTTPException(status_code=400, detail="Complete both meal tasting and hygiene checks before submitting")
     row = db.scalar(
         select(DailyMealEntry).where(
             DailyMealEntry.school_id == payload.school_id,

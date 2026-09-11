@@ -1,7 +1,7 @@
 from datetime import date
 from sqlalchemy import select
 from app.db.session import SessionLocal, Base, engine
-from app.models import District, Block, Cluster, School, AcademicYear, Translation, Menu, Ingredient, UserSchoolAccess, SchoolProfile
+from app.models import District, Block, Cluster, School, AcademicYear, Translation, Menu, Ingredient, UserSchoolAccess
 
 TRANSLATIONS = [
     ("app.title", "PM POSHAN", "पीएम पोषण"),
@@ -88,16 +88,6 @@ def main():
         for code,en,mr,cat,unit,track in INGREDIENTS:
             if not db.scalar(select(Ingredient).where(Ingredient.code == code)):
                 db.add(Ingredient(code=code,name_en=en,name_mr=mr,category=cat,base_unit=unit,track_inventory=track))
-        profile = db.scalar(select(SchoolProfile).where(SchoolProfile.school_id == school.id))
-        if not profile:
-            db.add(SchoolProfile(
-                school_id=school.id,
-                kitchen_type="SCHOOL_KITCHEN",
-                headmaster_name="Demo Headmaster",
-                meal_incharge_name="Demo Meal In-charge",
-                created_by="seed",
-            ))
-
         demo_access = [
             ("11111111-1111-1111-1111-111111111111", "teacher.demo", "TEACHER"),
             ("22222222-2222-2222-2222-222222222222", "headmaster.demo", "HEADMASTER"),

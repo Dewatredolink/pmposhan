@@ -1,9 +1,8 @@
 export type Lang = 'mr' | 'en';
-export const t: Record<string, Record<Lang, string>> = {
+export const t = {
   title: { en: 'PM POSHAN Management System', mr: 'पीएम पोषण व्यवस्थापन प्रणाली' },
   subtitle: { en: 'School Meal & Nutrition Management', mr: 'शालेय पोषण आहार व्यवस्थापन' },
   dashboard: { en: 'Dashboard', mr: 'डॅशबोर्ड' },
-  schoolProfile: { en: 'School Profile', mr: 'शाळा प्रोफाइल' },
   dailyMeal: { en: 'Daily Meal', mr: 'दैनिक आहार' },
   stockReceipt: { en: 'Stock Receipt', mr: 'साठा प्राप्ती' },
   stockRegister: { en: 'Stock Register', mr: 'साठा नोंदवही' },
