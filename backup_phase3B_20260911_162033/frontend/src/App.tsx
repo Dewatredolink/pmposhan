@@ -7,7 +7,6 @@ import StockRegister from './pages/StockRegister';
 import StockControls from './pages/StockControls';
 import Reports from './pages/Reports';
 import HierarchyDashboard from './pages/HierarchyDashboard';
-import AdminDashboard from './pages/AdminDashboard';
 import { Lang, t } from './i18n/translations';
 import { apiFetch, keycloak, realmRoles } from './auth';
 import './styles.css';
@@ -20,7 +19,7 @@ type MeResponse = {
   school_access: { school_id: string | null; school_name_en?:string|null; school_name_mr?:string|null; role: string; preferred_language: string }[];
 };
 
-type Page = 'dashboard'|'schoolProfile'|'dailyMeal'|'stockReceipt'|'stockRegister'|'stockControls'|'monthlyVerification'|'adminDashboard'|'reports';
+type Page = 'dashboard'|'schoolProfile'|'dailyMeal'|'stockReceipt'|'stockRegister'|'stockControls'|'monthlyVerification'|'reports';
 
 export default function App(){
   const [lang,setLang] = useState<Lang>((localStorage.getItem('pmposhan.lang') as Lang) || 'mr');
@@ -43,9 +42,7 @@ export default function App(){
   },[]);
 
   const tr=(k:keyof typeof t)=>t[k][lang];
-  const navBase:[Page,keyof typeof t,string][]=[['dashboard','dashboard','🏠'],['schoolProfile','schoolProfile','🏫'],['dailyMeal','dailyMeal','🍲'],['stockReceipt','stockReceipt','📦'],['stockRegister','stockRegister','📊'],['stockControls','stockControls','🧾'],['monthlyVerification','monthlyVerification','✅'],['adminDashboard','adminDashboard','📈'],['reports','reports','📄']];
-  const adminRoles=['HEADMASTER','CLUSTER_OFFICER','BLOCK_OFFICER','DISTRICT_OFFICER','SYSTEM_ADMIN'];
-  const nav=navBase.filter(([id])=>id!=='adminDashboard'||realmRoles().some(r=>adminRoles.includes(r))); 
+  const nav:[Page,keyof typeof t,string][]=[['dashboard','dashboard','🏠'],['schoolProfile','schoolProfile','🏫'],['dailyMeal','dailyMeal','🍲'],['stockReceipt','stockReceipt','📦'],['stockRegister','stockRegister','📊'],['stockControls','stockControls','🧾'],['monthlyVerification','monthlyVerification','✅'],['reports','reports','📄']];
   const roles = realmRoles().filter(r => ['TEACHER','HEADMASTER','CLUSTER_OFFICER','BLOCK_OFFICER','DISTRICT_OFFICER','SYSTEM_ADMIN'].includes(r));
 
   const placeholder = (title:string,phase:string)=><main className="content"><section className="panel"><h2>{title}</h2><p>{lang==='mr'?`${phase} मध्ये हा मॉड्यूल जोडला जाईल.`:`This module will be added in ${phase}.`}</p></section></main>;
@@ -57,7 +54,6 @@ export default function App(){
   else if(page==='stockRegister') body=<StockRegister lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
   else if(page==='stockControls') body=<StockControls lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
   else if(page==='monthlyVerification') body=<HierarchyDashboard lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
-  else if(page==='adminDashboard') body=<AdminDashboard lang={lang}/>;
   else body=<Reports lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
 
   return <div className="app">
