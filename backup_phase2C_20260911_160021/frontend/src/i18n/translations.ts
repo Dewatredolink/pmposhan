@@ -7,7 +7,6 @@ export const t: Record<string, Record<Lang, string>> = {
   dailyMeal: { en: 'Daily Meal', mr: 'दैनिक आहार' },
   stockReceipt: { en: 'Stock Receipt', mr: 'साठा प्राप्ती' },
   stockRegister: { en: 'Stock Register', mr: 'साठा नोंदवही' },
-  stockControls: { en: 'Stock Controls', mr: 'साठा नियंत्रण' },
   monthlyVerification: { en: 'Monthly Verification', mr: 'मासिक पडताळणी' },
   reports: { en: 'Reports', mr: 'अहवाल' },
   alerts: { en: 'Alerts', mr: 'सूचना' },

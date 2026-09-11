@@ -21,9 +21,6 @@ from app.models import (
     StockReceipt,
     StockReceiptLine,
     StockTransaction,
-    StockAdjustment,
-    PhysicalStockVerification,
-    PhysicalStockVerificationLine,
 )
 from app.schemas.operations import (
     AttendanceInput,
@@ -33,9 +30,7 @@ from app.schemas.operations import (
     VerifyInput,
 )
 from app.schemas.org import DistrictOut, SchoolOut
-from app.schemas.inventory import (
-    StockOpeningInput, StockReceiptInput, StockAdjustmentInput, PhysicalStockVerificationInput,
-)
+from app.schemas.inventory import StockOpeningInput, StockReceiptInput
 
 router = APIRouter()
 
@@ -211,7 +206,7 @@ def _meal_dict(row: DailyMealEntry | None):
 
 @router.get("/health")
 def health():
-    return {"status": "ok", "service": "pmposhan-api", "phase": "2C"}
+    return {"status": "ok", "service": "pmposhan-api", "phase": "2B"}
 
 
 @router.get("/me")
@@ -700,254 +695,6 @@ def create_stock_receipt(
         ))
     db.commit()
     return {"ok": True, "id": receipt.id, "receipt_no": receipt.receipt_no, "lines": len(payload.lines)}
-
-
-@router.post("/stock/adjustments")
-def create_stock_adjustment(
-    payload: StockAdjustmentInput,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(require_roles("HEADMASTER", "SYSTEM_ADMIN")),
-):
-    _school_or_404(db, payload.school_id)
-    _assert_school_access(db, user, payload.school_id)
-    ing = db.get(Ingredient, payload.ingredient_id)
-    if not ing or not ing.active or not ing.track_inventory:
-        raise HTTPException(status_code=400, detail="Invalid inventory ingredient")
-    duplicate = db.scalar(select(StockAdjustment).where(
-        StockAdjustment.school_id == payload.school_id,
-        StockAdjustment.adjustment_no == payload.adjustment_no,
-    ))
-    if duplicate:
-        raise HTTPException(status_code=409, detail="Adjustment number already exists for this school")
-    if payload.quantity < 0:
-        available = _stock_balance(db, payload.school_id, payload.ingredient_id)
-        if available + payload.quantity < 0:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Adjustment would create negative stock. Available {available} {ing.base_unit}",
-            )
-    row = StockAdjustment(
-        school_id=payload.school_id,
-        adjustment_date=payload.adjustment_date,
-        adjustment_no=payload.adjustment_no,
-        ingredient_id=payload.ingredient_id,
-        quantity=payload.quantity,
-        reason_code=payload.reason_code,
-        remarks=payload.remarks,
-        entered_by_subject=user.subject,
-        entered_by_username=user.username,
-        created_by=user.username,
-    )
-    db.add(row)
-    db.flush()
-    tx = StockTransaction(
-        school_id=payload.school_id,
-        ingredient_id=payload.ingredient_id,
-        transaction_date=payload.adjustment_date,
-        transaction_type="ADJUSTMENT",
-        quantity=payload.quantity,
-        reference_type="STOCK_ADJUSTMENT",
-        reference_id=row.id,
-        reference_no=payload.adjustment_no,
-        remarks=f"{payload.reason_code}: {payload.remarks or ''}".strip(),
-        entered_by_subject=user.subject,
-        entered_by_username=user.username,
-        created_by=user.username,
-    )
-    db.add(tx)
-    db.commit()
-    db.refresh(row)
-    return {
-        "ok": True,
-        "id": row.id,
-        "adjustment_no": row.adjustment_no,
-        "quantity": float(row.quantity),
-        "balance_after": float(_stock_balance(db, payload.school_id, payload.ingredient_id)),
-    }
-
-
-@router.get("/stock/adjustments")
-def list_stock_adjustments(
-    school_id: str,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(get_current_user),
-):
-    _school_or_404(db, school_id)
-    _assert_school_access(db, user, school_id)
-    rows = db.scalars(
-        select(StockAdjustment)
-        .where(StockAdjustment.school_id == school_id)
-        .order_by(StockAdjustment.adjustment_date.desc(), StockAdjustment.created_at.desc())
-    ).all()
-    return [{
-        "id": r.id,
-        "adjustment_date": r.adjustment_date,
-        "adjustment_no": r.adjustment_no,
-        "ingredient_id": r.ingredient_id,
-        "ingredient_name_en": r.ingredient.name_en if r.ingredient else None,
-        "ingredient_name_mr": r.ingredient.name_mr if r.ingredient else None,
-        "unit": r.ingredient.base_unit if r.ingredient else None,
-        "quantity": float(r.quantity),
-        "reason_code": r.reason_code,
-        "remarks": r.remarks,
-        "entered_by_username": r.entered_by_username,
-    } for r in rows]
-
-
-@router.post("/stock/physical-verifications")
-def create_physical_stock_verification(
-    payload: PhysicalStockVerificationInput,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(require_roles("HEADMASTER", "SYSTEM_ADMIN")),
-):
-    _school_or_404(db, payload.school_id)
-    _assert_school_access(db, user, payload.school_id)
-    duplicate = db.scalar(select(PhysicalStockVerification).where(
-        PhysicalStockVerification.school_id == payload.school_id,
-        PhysicalStockVerification.verification_no == payload.verification_no,
-    ))
-    if duplicate:
-        raise HTTPException(status_code=409, detail="Verification number already exists for this school")
-
-    header = PhysicalStockVerification(
-        school_id=payload.school_id,
-        verification_date=payload.verification_date,
-        verification_no=payload.verification_no,
-        remarks=payload.remarks,
-        entered_by_subject=user.subject,
-        entered_by_username=user.username,
-        created_by=user.username,
-    )
-    db.add(header)
-    db.flush()
-    variance_count = 0
-    for line in payload.lines:
-        ing = db.get(Ingredient, line.ingredient_id)
-        if not ing or not ing.active or not ing.track_inventory:
-            raise HTTPException(status_code=400, detail=f"Invalid inventory ingredient: {line.ingredient_id}")
-        system_qty = _stock_balance(db, payload.school_id, line.ingredient_id)
-        variance = line.physical_quantity - system_qty
-        db.add(PhysicalStockVerificationLine(
-            verification_id=header.id,
-            ingredient_id=line.ingredient_id,
-            system_quantity=system_qty,
-            physical_quantity=line.physical_quantity,
-            variance_quantity=variance,
-            created_by=user.username,
-        ))
-        if variance != 0:
-            variance_count += 1
-            db.add(StockTransaction(
-                school_id=payload.school_id,
-                ingredient_id=line.ingredient_id,
-                transaction_date=payload.verification_date,
-                transaction_type="PHYSICAL_ADJUSTMENT",
-                quantity=variance,
-                reference_type="PHYSICAL_STOCK",
-                reference_id=header.id,
-                reference_no=payload.verification_no,
-                remarks=payload.remarks or "Physical stock verification variance",
-                entered_by_subject=user.subject,
-                entered_by_username=user.username,
-                created_by=user.username,
-            ))
-    db.commit()
-    return {"ok": True, "id": header.id, "verification_no": header.verification_no, "variance_lines": variance_count}
-
-
-@router.get("/stock/physical-verifications")
-def list_physical_stock_verifications(
-    school_id: str,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(get_current_user),
-):
-    _school_or_404(db, school_id)
-    _assert_school_access(db, user, school_id)
-    rows = db.scalars(
-        select(PhysicalStockVerification)
-        .where(PhysicalStockVerification.school_id == school_id)
-        .order_by(PhysicalStockVerification.verification_date.desc(), PhysicalStockVerification.created_at.desc())
-    ).all()
-    return [{
-        "id": r.id,
-        "verification_date": r.verification_date,
-        "verification_no": r.verification_no,
-        "remarks": r.remarks,
-        "entered_by_username": r.entered_by_username,
-        "lines": [{
-            "ingredient_id": ln.ingredient_id,
-            "ingredient_name_en": ln.ingredient.name_en if ln.ingredient else None,
-            "ingredient_name_mr": ln.ingredient.name_mr if ln.ingredient else None,
-            "unit": ln.ingredient.base_unit if ln.ingredient else None,
-            "system_quantity": float(ln.system_quantity),
-            "physical_quantity": float(ln.physical_quantity),
-            "variance_quantity": float(ln.variance_quantity),
-        } for ln in r.lines],
-    } for r in rows]
-
-
-@router.get("/stock/monthly-summary")
-def stock_monthly_summary(
-    school_id: str,
-    year: int,
-    month: int,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(get_current_user),
-):
-    _school_or_404(db, school_id)
-    _assert_school_access(db, user, school_id)
-    if month < 1 or month > 12 or year < 2000 or year > 2200:
-        raise HTTPException(status_code=400, detail="Invalid year/month")
-    from calendar import monthrange
-    first = date(year, month, 1)
-    last = date(year, month, monthrange(year, month)[1])
-    ingredients = db.scalars(
-        select(Ingredient).where(Ingredient.active.is_(True), Ingredient.track_inventory.is_(True)).order_by(Ingredient.name_en)
-    ).all()
-    result = []
-    for ing in ingredients:
-        opening = Decimal(str(db.scalar(select(func.coalesce(func.sum(StockTransaction.quantity), 0)).where(
-            StockTransaction.school_id == school_id,
-            StockTransaction.ingredient_id == ing.id,
-            StockTransaction.transaction_date < first,
-        )) or 0))
-        period_rows = db.execute(select(
-            StockTransaction.transaction_type,
-            func.coalesce(func.sum(StockTransaction.quantity), 0),
-        ).where(
-            StockTransaction.school_id == school_id,
-            StockTransaction.ingredient_id == ing.id,
-            StockTransaction.transaction_date >= first,
-            StockTransaction.transaction_date <= last,
-        ).group_by(StockTransaction.transaction_type)).all()
-        by_type = {k: Decimal(str(v or 0)) for k, v in period_rows}
-        receipts = by_type.get("RECEIPT", Decimal("0"))
-        consumption = by_type.get("CONSUMPTION", Decimal("0"))
-        adjustments = by_type.get("ADJUSTMENT", Decimal("0")) + by_type.get("PHYSICAL_ADJUSTMENT", Decimal("0"))
-        opening_in_period = by_type.get("OPENING", Decimal("0"))
-        closing = opening + sum(by_type.values(), Decimal("0"))
-        result.append({
-            "ingredient_id": ing.id,
-            "code": ing.code,
-            "name_en": ing.name_en,
-            "name_mr": ing.name_mr,
-            "unit": ing.base_unit,
-            "opening": float(opening + opening_in_period),
-            "receipts": float(receipts),
-            "consumption": float(abs(consumption)),
-            "adjustments": float(adjustments),
-            "closing": float(closing),
-            "reorder_level": float(Decimal(str(ing.reorder_level or 0))),
-            "low_stock": closing <= Decimal(str(ing.reorder_level or 0)) if Decimal(str(ing.reorder_level or 0)) > 0 else False,
-        })
-    return {
-        "school_id": school_id,
-        "year": year,
-        "month": month,
-        "from_date": first,
-        "to_date": last,
-        "items": result,
-    }
 
 
 @router.get("/dashboard-summary")

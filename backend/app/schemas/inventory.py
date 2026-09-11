@@ -33,3 +33,41 @@ class StockOpeningInput(BaseModel):
     ingredient_id: str
     quantity: Decimal = Field(gt=0)
     remarks: str | None = Field(default=None, max_length=1000)
+
+
+class StockAdjustmentInput(BaseModel):
+    school_id: str
+    adjustment_date: date
+    adjustment_no: str = Field(min_length=1, max_length=80)
+    ingredient_id: str
+    quantity: Decimal
+    reason_code: str = Field(min_length=1, max_length=40)
+    remarks: str | None = Field(default=None, max_length=1000)
+
+    @model_validator(mode="after")
+    def validate_quantity(self):
+        if self.quantity == 0:
+            raise ValueError("Adjustment quantity cannot be zero")
+        return self
+
+
+class PhysicalStockLineInput(BaseModel):
+    ingredient_id: str
+    physical_quantity: Decimal = Field(ge=0)
+
+
+class PhysicalStockVerificationInput(BaseModel):
+    school_id: str
+    verification_date: date
+    verification_no: str = Field(min_length=1, max_length=80)
+    remarks: str | None = Field(default=None, max_length=1000)
+    lines: list[PhysicalStockLineInput]
+
+    @model_validator(mode="after")
+    def validate_lines(self):
+        if not self.lines:
+            raise ValueError("At least one physical stock line is required")
+        ids = [x.ingredient_id for x in self.lines]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Duplicate ingredient lines are not allowed")
+        return self
