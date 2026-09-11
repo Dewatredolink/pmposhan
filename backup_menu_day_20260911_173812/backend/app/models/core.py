@@ -54,17 +54,3 @@ class Recipe(Base, UUIDAuditMixin):
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     menu = relationship("Menu")
     ingredient = relationship("Ingredient")
-
-
-class MenuSchedule(Base, UUIDAuditMixin):
-    __tablename__ = "menu_schedules"
-    __table_args__ = (UniqueConstraint("school_id", "menu_date", name="uq_menu_schedule_school_date"),)
-
-    school_id: Mapped[str] = mapped_column(ForeignKey("schools.id", ondelete="CASCADE"), nullable=False, index=True)
-    menu_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
-    menu_id: Mapped[str] = mapped_column(ForeignKey("menus.id", ondelete="RESTRICT"), nullable=False, index=True)
-    remarks: Mapped[str | None] = mapped_column(String(500), nullable=True)
-    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-
-    school = relationship("School")
-    menu = relationship("Menu")

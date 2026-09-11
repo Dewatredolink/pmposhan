@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import Dashboard from './pages/Dashboard';
 import DailyMeal from './pages/DailyMeal';
-import MenuPlanner from './pages/MenuPlanner';
 import SchoolProfile from './pages/SchoolProfile';
 import StockReceipt from './pages/StockReceipt';
 import StockRegister from './pages/StockRegister';
@@ -10,8 +9,6 @@ import Reports from './pages/Reports';
 import HierarchyDashboard from './pages/HierarchyDashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import SchoolCalendar from './pages/SchoolCalendar';
-import MasterData from './pages/MasterData';
-import CustomReports from './pages/CustomReports';
 import { Lang, t } from './i18n/translations';
 import { apiFetch, keycloak, realmRoles } from './auth';
 import './styles.css';
@@ -24,7 +21,7 @@ type MeResponse = {
   school_access: { school_id: string | null; school_name_en?:string|null; school_name_mr?:string|null; role: string; preferred_language: string }[];
 };
 
-type Page = 'dashboard'|'schoolProfile'|'menuPlanner'|'dailyMeal'|'stockReceipt'|'stockRegister'|'stockControls'|'monthlyVerification'|'adminDashboard'|'schoolCalendar'|'masterData'|'customReports'|'reports';
+type Page = 'dashboard'|'schoolProfile'|'dailyMeal'|'stockReceipt'|'stockRegister'|'stockControls'|'monthlyVerification'|'adminDashboard'|'schoolCalendar'|'reports';
 
 export default function App(){
   const [lang,setLang] = useState<Lang>((localStorage.getItem('pmposhan.lang') as Lang) || 'mr');
@@ -47,16 +44,15 @@ export default function App(){
   },[]);
 
   const tr=(k:keyof typeof t)=>t[k][lang];
-  const navBase:[Page,keyof typeof t,string][]=[['dashboard','dashboard','🏠'],['schoolProfile','schoolProfile','🏫'],['menuPlanner','menuPlanner','📅'],['dailyMeal','dailyMeal','🍲'],['stockReceipt','stockReceipt','📦'],['stockRegister','stockRegister','📊'],['stockControls','stockControls','🧾'],['monthlyVerification','monthlyVerification','✅'],['adminDashboard','adminDashboard','📈'],['schoolCalendar','schoolCalendar','🗓️'],['masterData','masterData','⚙️'],['customReports','customReports','📥'],['reports','reports','📄']];
+  const navBase:[Page,keyof typeof t,string][]=[['dashboard','dashboard','🏠'],['schoolProfile','schoolProfile','🏫'],['dailyMeal','dailyMeal','🍲'],['stockReceipt','stockReceipt','📦'],['stockRegister','stockRegister','📊'],['stockControls','stockControls','🧾'],['monthlyVerification','monthlyVerification','✅'],['adminDashboard','adminDashboard','📈'],['schoolCalendar','schoolCalendar','🗓️'],['reports','reports','📄']];
   const adminRoles=['HEADMASTER','CLUSTER_OFFICER','BLOCK_OFFICER','DISTRICT_OFFICER','SYSTEM_ADMIN'];
-  const nav=navBase.filter(([id])=>{ if(id==='masterData') return realmRoles().includes('SYSTEM_ADMIN'); if(id==='adminDashboard'||id==='customReports') return realmRoles().some(r=>adminRoles.includes(r)); return true; }); 
+  const nav=navBase.filter(([id])=>id!=='adminDashboard'||realmRoles().some(r=>adminRoles.includes(r))); 
   const roles = realmRoles().filter(r => ['TEACHER','HEADMASTER','CLUSTER_OFFICER','BLOCK_OFFICER','DISTRICT_OFFICER','SYSTEM_ADMIN'].includes(r));
 
   const placeholder = (title:string,phase:string)=><main className="content"><section className="panel"><h2>{title}</h2><p>{lang==='mr'?`${phase} मध्ये हा मॉड्यूल जोडला जाईल.`:`This module will be added in ${phase}.`}</p></section></main>;
   let body:any;
   if(page==='dashboard') body=<Dashboard lang={lang} schoolId={schoolId}/>;
   else if(page==='schoolProfile') body=<SchoolProfile lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
-  else if(page==='menuPlanner') body=<MenuPlanner lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
   else if(page==='dailyMeal') body=<DailyMeal lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
   else if(page==='stockReceipt') body=<StockReceipt lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
   else if(page==='stockRegister') body=<StockRegister lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
@@ -64,8 +60,6 @@ export default function App(){
   else if(page==='monthlyVerification') body=<HierarchyDashboard lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
   else if(page==='adminDashboard') body=<AdminDashboard lang={lang}/>;
   else if(page==='schoolCalendar') body=<SchoolCalendar lang={lang} schoolId={schoolId}/>;
-  else if(page==='masterData') body=<MasterData lang={lang}/>;
-  else if(page==='customReports') body=<CustomReports lang={lang}/>;
   else body=<Reports lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
 
   return <div className="app">

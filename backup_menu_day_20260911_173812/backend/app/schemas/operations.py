@@ -59,10 +59,3 @@ class UserSchoolAccessCreate(BaseModel):
     school_id: str
     role: str
     preferred_language: str = "mr"
-
-
-class MenuPlanInput(BaseModel):
-    school_id: str
-    menu_date: date
-    menu_id: str
-    remarks: str | None = Field(default=None, max_length=500)

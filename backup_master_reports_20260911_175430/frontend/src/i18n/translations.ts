@@ -12,8 +12,6 @@ export const t: Record<string, Record<Lang, string>> = {
   monthlyVerification: { en: 'Hierarchy & Monthly Returns', mr: 'श्रेणी व मासिक परतावा' },
   adminDashboard: { en: 'Administrative Dashboard', mr: 'प्रशासकीय डॅशबोर्ड' },
   schoolCalendar: { en: 'School Calendar', mr: 'शाळा कॅलेंडर' },
-  masterData: { en: 'Master Data', mr: 'मास्टर डेटा' },
-  customReports: { en: 'Custom Excel Reports', mr: 'सानुकूल Excel अहवाल' },
   reports: { en: 'Reports', mr: 'अहवाल' },
   alerts: { en: 'Alerts', mr: 'सूचना' },
   students: { en: 'Students', mr: 'विद्यार्थी' },

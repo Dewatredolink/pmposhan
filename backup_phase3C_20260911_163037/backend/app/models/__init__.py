@@ -1,5 +1,5 @@
 from app.models.org import District, Block, Cluster, School
-from app.models.core import AcademicYear, Translation, Menu, Ingredient, Recipe, MenuSchedule
+from app.models.core import AcademicYear, Translation, Menu, Ingredient, Recipe
 from app.models.security import UserSchoolAccess
 from app.models.hierarchy import UserOrgAccess
 from app.models.monthly import MonthlySchoolReturn, MonthlyReturnAction
@@ -11,9 +11,8 @@ from app.models.inventory import (
 
 __all__ = [
     "District", "Block", "Cluster", "School",
-    "AcademicYear", "Translation", "Menu", "Ingredient", "Recipe", "MenuSchedule",
+    "AcademicYear", "Translation", "Menu", "Ingredient", "Recipe",
     "UserSchoolAccess", "UserOrgAccess", "MonthlySchoolReturn", "MonthlyReturnAction", "SchoolProfile", "DailyAttendance", "DailyMealEntry",
     "StockReceipt", "StockReceiptLine", "StockTransaction", "StockAdjustment",
     "PhysicalStockVerification", "PhysicalStockVerificationLine",
 ]
-from app.models.calendar import SchoolCalendarDay

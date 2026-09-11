@@ -4,11 +4,9 @@ import { Lang } from '../i18n/translations';
 
 type School = { id:string; name_en:string; name_mr:string; class_1_5_strength:number; class_6_8_strength:number };
 type Menu = { id:string; code:string; name_en:string; name_mr:string; week_pattern:string; day_of_week:number };
-type RecipeItem = { ingredient_id:string; code:string; name_en:string; name_mr:string; unit:string; qty_per_student_class_1_5:number; qty_per_student_class_6_8:number; required_class_1_5:number; required_class_6_8:number; required_total:number };
 type DailyData = {
   attendance: null | { class_1_5_enrolled:number; class_1_5_present:number; class_6_8_enrolled:number; class_6_8_present:number; status:string; verified_by_username?:string|null };
   meal: null | { menu_id:string; meals_class_1_5:number; meals_class_6_8:number; tasting_done:boolean; hygiene_ok:boolean; remarks?:string|null; status:string; verified_by_username?:string|null };
-  planned_menu?: null | { menu_id:string; menu_name_en?:string|null; menu_name_mr?:string|null; menu_code?:string|null };
 };
 
 type Props = { lang:Lang; schools:School[]; schoolId:string; setSchoolId:(id:string)=>void };
@@ -18,8 +16,6 @@ export default function DailyMeal({lang, schools, schoolId, setSchoolId}:Props){
   const [date,setDate] = useState(today);
   const [menus,setMenus] = useState<Menu[]>([]);
   const [message,setMessage] = useState('');
-  const [recipeItems,setRecipeItems] = useState<RecipeItem[]>([]);
-  const [plannedLabel,setPlannedLabel] = useState('');
   const [busy,setBusy] = useState(false);
   const school = schools.find(s=>s.id===schoolId);
   const [a,setA] = useState({e15:0,p15:0,e68:0,p68:0,status:'DRAFT'});
@@ -39,8 +35,7 @@ export default function DailyMeal({lang, schools, schoolId, setSchoolId}:Props){
       if(!r.ok) throw new Error(await r.text());
       const d:DailyData = await r.json();
       setA(d.attendance ? {e15:d.attendance.class_1_5_enrolled,p15:d.attendance.class_1_5_present,e68:d.attendance.class_6_8_enrolled,p68:d.attendance.class_6_8_present,status:d.attendance.status} : {e15:school?.class_1_5_strength||0,p15:0,e68:school?.class_6_8_strength||0,p68:0,status:'DRAFT'});
-      setM(d.meal ? {menu_id:d.meal.menu_id,m15:d.meal.meals_class_1_5,m68:d.meal.meals_class_6_8,tasting:d.meal.tasting_done,hygiene:d.meal.hygiene_ok,remarks:d.meal.remarks||'',status:d.meal.status} : {menu_id:d.planned_menu?.menu_id||'',m15:0,m68:0,tasting:false,hygiene:false,remarks:'',status:'DRAFT'});
-      setPlannedLabel(d.planned_menu ? `${lang==='mr'?(d.planned_menu.menu_name_mr||d.planned_menu.menu_name_en):(d.planned_menu.menu_name_en||d.planned_menu.menu_name_mr)}${d.planned_menu.menu_code?` (${d.planned_menu.menu_code})`:''}` : '');
+      setM(d.meal ? {menu_id:d.meal.menu_id,m15:d.meal.meals_class_1_5,m68:d.meal.meals_class_6_8,tasting:d.meal.tasting_done,hygiene:d.meal.hygiene_ok,remarks:d.meal.remarks||'',status:d.meal.status} : {menu_id:'',m15:0,m68:0,tasting:false,hygiene:false,remarks:'',status:'DRAFT'});
     } catch(e) {
       setMessage(String(e));
     }
@@ -52,16 +47,6 @@ export default function DailyMeal({lang, schools, schoolId, setSchoolId}:Props){
     const dow = new Date(`${date}T12:00:00`).getDay(); // 1 Mon..6 Sat
     return menus.filter(x=>x.day_of_week===dow);
   },[menus,date]);
-
-  useEffect(()=>{
-    if(!m.menu_id || !date){ setRecipeItems([]); return; }
-    apiFetch(`/menus/${encodeURIComponent(m.menu_id)}/recipe-preview?on_date=${date}&class_1_5=${Math.max(0,m.m15)}&class_6_8=${Math.max(0,m.m68)}`)
-      .then(async r=>{ if(!r.ok) throw new Error(await r.text()); return r.json(); })
-      .then(d=>setRecipeItems(Array.isArray(d.items)?d.items:[]))
-      .catch(()=>setRecipeItems([]));
-  },[m.menu_id,m.m15,m.m68,date]);
-
-  const fmt=(v:number)=>Number(v||0).toLocaleString(undefined,{maximumFractionDigits:4});
 
   async function save(status:'DRAFT'|'SUBMITTED'){
     if(!schoolId || !m.menu_id){ setMessage(lang==='mr'?'शाळा आणि मेनू निवडा.':'Select school and menu.'); return; }
@@ -106,16 +91,14 @@ export default function DailyMeal({lang, schools, schoolId, setSchoolId}:Props){
       <label>{lang==='mr'?'इ. 6-8 उपस्थित':'Class 6-8 Present'}<input type="number" min="0" disabled={locked} value={a.p68} onChange={e=>setA({...a,p68:+e.target.value})}/></label>
     </div><div className="metric-line"><strong>{lang==='mr'?'एकूण उपस्थित':'Total present'}: {totalPresent}</strong></div></section>
 
-    <section className="panel"><h3>{lang==='mr'?'2. भोजन नोंद':'2. Meal Entry'}</h3>{plannedLabel&&<div className="notice"><strong>{lang==='mr'?'या दिवसासाठी नियोजित मेनू':'Planned menu for this date'}:</strong> {plannedLabel}</div>}<div className="form-grid">
-      <label className="span-2">{lang==='mr'?'आजचा मेनू':'Today’s Menu'}<select disabled={locked || !!plannedLabel} value={m.menu_id} onChange={e=>setM({...m,menu_id:e.target.value})}><option value="">-- {lang==='mr'?'मेनू निवडा':'Select menu'} --</option>{(suggestedMenus.length?suggestedMenus:menus).map(x=><option key={x.id} value={x.id}>{lang==='mr'?x.name_mr:x.name_en} ({x.code})</option>)}</select></label>
+    <section className="panel"><h3>{lang==='mr'?'2. भोजन नोंद':'2. Meal Entry'}</h3><div className="form-grid">
+      <label className="span-2">{lang==='mr'?'आजचा मेनू':'Today’s Menu'}<select disabled={locked} value={m.menu_id} onChange={e=>setM({...m,menu_id:e.target.value})}><option value="">-- {lang==='mr'?'मेनू निवडा':'Select menu'} --</option>{(suggestedMenus.length?suggestedMenus:menus).map(x=><option key={x.id} value={x.id}>{lang==='mr'?x.name_mr:x.name_en} ({x.code})</option>)}</select></label>
       <label>{lang==='mr'?'इ. 1-5 भोजन':'Meals Class 1-5'}<input type="number" min="0" disabled={locked} value={m.m15} onChange={e=>setM({...m,m15:+e.target.value})}/></label>
       <label>{lang==='mr'?'इ. 6-8 भोजन':'Meals Class 6-8'}<input type="number" min="0" disabled={locked} value={m.m68} onChange={e=>setM({...m,m68:+e.target.value})}/></label>
       <label className="check"><input type="checkbox" disabled={locked} checked={m.tasting} onChange={e=>setM({...m,tasting:e.target.checked})}/>{lang==='mr'?'भोजन चव तपासणी पूर्ण':'Meal tasting completed'}</label>
       <label className="check"><input type="checkbox" disabled={locked} checked={m.hygiene} onChange={e=>setM({...m,hygiene:e.target.checked})}/>{lang==='mr'?'स्वच्छता तपासणी समाधानकारक':'Hygiene check satisfactory'}</label>
       <label className="span-2">{lang==='mr'?'शेरा':'Remarks'}<textarea disabled={locked} value={m.remarks} onChange={e=>setM({...m,remarks:e.target.value})}/></label>
-    </div><div className="metric-line"><strong>{lang==='mr'?'एकूण भोजन':'Total meals'}: {totalMeals}</strong><span>{totalMeals>totalPresent ? (lang==='mr'?'⚠ भोजन संख्या उपस्थितीपेक्षा जास्त आहे':'⚠ Meals exceed attendance') : ''}</span></div>
-    {m.menu_id&&<div style={{marginTop:16}}><h3>{lang==='mr'?'3. या भोजनासाठी आवश्यक साहित्य':'3. Ingredients required for this meal'}</h3>{recipeItems.length===0?<div className="notice">{lang==='mr'?'या मेनूसाठी Recipe Master उपलब्ध नाही.':'No Recipe Master configured for this menu.'}</div>:<div className="table-wrap"><table><thead><tr><th>{lang==='mr'?'साहित्य':'Ingredient'}</th><th>{lang==='mr'?'इ.1-5':'Class 1-5'}</th><th>{lang==='mr'?'इ.6-8':'Class 6-8'}</th><th>{lang==='mr'?'एकूण वापर':'Total to use'}</th></tr></thead><tbody>{recipeItems.map(x=><tr key={x.ingredient_id}><td>{lang==='mr'?x.name_mr:x.name_en}<small style={{display:'block'}}>{x.code}</small></td><td>{fmt(x.required_class_1_5)} {x.unit}</td><td>{fmt(x.required_class_6_8)} {x.unit}</td><td><strong>{fmt(x.required_total)} {x.unit}</strong></td></tr>)}</tbody></table></div>}</div>}
-    </section>
+    </div><div className="metric-line"><strong>{lang==='mr'?'एकूण भोजन':'Total meals'}: {totalMeals}</strong><span>{totalMeals>totalPresent ? (lang==='mr'?'⚠ भोजन संख्या उपस्थितीपेक्षा जास्त आहे':'⚠ Meals exceed attendance') : ''}</span></div></section>
 
     {message && <div className="notice">{message}</div>}
     <div className="action-row">

@@ -1,12 +1,9 @@
-from datetime import date, datetime, timezone, timedelta
+from datetime import date, datetime, timezone
 from calendar import monthrange
 from decimal import Decimal
-from io import BytesIO
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import StreamingResponse
 from sqlalchemy import func, select
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.auth import CurrentUser, get_current_user, require_roles
@@ -34,7 +31,6 @@ from app.models import (
     PhysicalStockVerification,
     PhysicalStockVerificationLine,
     SchoolCalendarDay,
-    MenuSchedule,
 )
 from app.schemas.operations import (
     AttendanceInput,
@@ -42,14 +38,12 @@ from app.schemas.operations import (
     SchoolProfileUpsert,
     UserSchoolAccessCreate,
     VerifyInput,
-    MenuPlanInput,
 )
 from app.schemas.org import DistrictOut, SchoolOut
 from app.schemas.inventory import (
     StockOpeningInput, StockReceiptInput, StockAdjustmentInput, PhysicalStockVerificationInput,
 )
 from app.schemas.monthly import MonthlyGenerateInput, MonthlyActionInput, OrgAccessInput
-from app.schemas.master_data import (DistrictMasterInput, BlockMasterInput, ClusterMasterInput, SchoolMasterInput, IngredientMasterInput, MenuMasterInput, RecipeStandardInput, CustomReportInput)
 
 router = APIRouter()
 
@@ -250,7 +244,7 @@ def _meal_dict(row: DailyMealEntry | None):
 
 @router.get("/health")
 def health():
-    return {"status": "ok", "service": "pmposhan-api", "phase": "3D-MASTER-REPORTS"}
+    return {"status": "ok", "service": "pmposhan-api", "phase": "3C"}
 
 
 @router.get("/me")
@@ -309,157 +303,6 @@ def menus(db: Session = Depends(get_db), _: CurrentUser = Depends(get_current_us
         for r in rows
     ]
 
-
-
-
-def _menu_plan_dict(row: MenuSchedule | None):
-    if not row:
-        return None
-    menu = row.menu
-    return {
-        "id": row.id,
-        "school_id": row.school_id,
-        "menu_date": row.menu_date.isoformat(),
-        "menu_id": row.menu_id,
-        "menu_code": menu.code if menu else None,
-        "menu_name_en": menu.name_en if menu else None,
-        "menu_name_mr": menu.name_mr if menu else None,
-        "remarks": row.remarks,
-        "active": row.active,
-    }
-
-
-def _recipe_preview(db: Session, menu_id: str, on_date: date, class_1_5: int, class_6_8: int):
-    rows = db.scalars(
-        select(Recipe).where(
-            Recipe.menu_id == menu_id,
-            Recipe.active.is_(True),
-            Recipe.effective_from <= on_date,
-            (Recipe.effective_to.is_(None) | (Recipe.effective_to >= on_date)),
-        ).order_by(Recipe.ingredient_id, Recipe.student_group)
-    ).all()
-    grouped: dict[str, dict] = {}
-    for r in rows:
-        ing = r.ingredient or db.get(Ingredient, r.ingredient_id)
-        if not ing:
-            continue
-        item = grouped.setdefault(r.ingredient_id, {
-            "ingredient_id": r.ingredient_id,
-            "code": ing.code,
-            "name_en": ing.name_en,
-            "name_mr": ing.name_mr,
-            "unit": r.measurement_unit or ing.base_unit,
-            "class_1_5_per_student": Decimal("0"),
-            "class_6_8_per_student": Decimal("0"),
-            "all_per_student": Decimal("0"),
-        })
-        qty = Decimal(str(r.qty_per_student))
-        if r.student_group == "CLASS_1_5":
-            item["class_1_5_per_student"] += qty
-        elif r.student_group == "CLASS_6_8":
-            item["class_6_8_per_student"] += qty
-        elif r.student_group == "ALL":
-            item["all_per_student"] += qty
-    result = []
-    for item in sorted(grouped.values(), key=lambda x: x["name_en"]):
-        q15 = item["class_1_5_per_student"] * class_1_5
-        q68 = item["class_6_8_per_student"] * class_6_8
-        qall = item["all_per_student"] * (class_1_5 + class_6_8)
-        total = q15 + q68 + qall
-        result.append({
-            "ingredient_id": item["ingredient_id"],
-            "code": item["code"],
-            "name_en": item["name_en"],
-            "name_mr": item["name_mr"],
-            "unit": item["unit"],
-            "qty_per_student_class_1_5": float(item["class_1_5_per_student"] + item["all_per_student"]),
-            "qty_per_student_class_6_8": float(item["class_6_8_per_student"] + item["all_per_student"]),
-            "required_class_1_5": float(q15 + item["all_per_student"] * class_1_5),
-            "required_class_6_8": float(q68 + item["all_per_student"] * class_6_8),
-            "required_total": float(total),
-        })
-    return result
-
-
-@router.get("/menu-plan")
-def get_menu_plan(
-    school_id: str,
-    menu_date: date,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(get_current_user),
-):
-    _school_or_404(db, school_id)
-    _assert_school_access(db, user, school_id)
-    row = db.scalar(
-        select(MenuSchedule).where(
-            MenuSchedule.school_id == school_id,
-            MenuSchedule.menu_date == menu_date,
-            MenuSchedule.active.is_(True),
-        )
-    )
-    return {"plan": _menu_plan_dict(row)}
-
-
-@router.put("/menu-plan")
-def save_menu_plan(
-    payload: MenuPlanInput,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(get_current_user),
-):
-    _school_or_404(db, payload.school_id)
-    _assert_school_access(db, user, payload.school_id, write=True)
-    if not (user.roles & {"HEADMASTER", "SYSTEM_ADMIN"}):
-        raise HTTPException(status_code=403, detail="Headmaster or System Admin role required to schedule menus")
-    menu = db.get(Menu, payload.menu_id)
-    if not menu or not menu.active:
-        raise HTTPException(status_code=404, detail="Menu not found")
-    row = db.scalar(
-        select(MenuSchedule).where(
-            MenuSchedule.school_id == payload.school_id,
-            MenuSchedule.menu_date == payload.menu_date,
-        )
-    )
-    if not row:
-        row = MenuSchedule(
-            school_id=payload.school_id,
-            menu_date=payload.menu_date,
-            menu_id=payload.menu_id,
-            remarks=payload.remarks,
-            active=True,
-            created_by=user.username,
-        )
-        db.add(row)
-    else:
-        row.menu_id = payload.menu_id
-        row.remarks = payload.remarks
-        row.active = True
-    db.commit()
-    db.refresh(row)
-    return {"ok": True, "plan": _menu_plan_dict(row)}
-
-
-@router.get("/menus/{menu_id}/recipe-preview")
-def menu_recipe_preview(
-    menu_id: str,
-    on_date: date,
-    class_1_5: int = 0,
-    class_6_8: int = 0,
-    db: Session = Depends(get_db),
-    user: CurrentUser = Depends(get_current_user),
-):
-    menu = db.get(Menu, menu_id)
-    if not menu or not menu.active:
-        raise HTTPException(status_code=404, detail="Menu not found")
-    class_1_5 = max(0, class_1_5)
-    class_6_8 = max(0, class_6_8)
-    items = _recipe_preview(db, menu_id, on_date, class_1_5, class_6_8)
-    return {
-        "menu": {"id": menu.id, "code": menu.code, "name_en": menu.name_en, "name_mr": menu.name_mr},
-        "on_date": on_date.isoformat(),
-        "class_1_5": class_1_5,
-        "class_6_8": class_6_8,
-        "items": items,
-    }
 
 @router.get("/ingredients")
 def ingredients(db: Session = Depends(get_db), _: CurrentUser = Depends(get_current_user)):
@@ -599,18 +442,10 @@ def get_daily_operations(
     meal = db.scalar(
         select(DailyMealEntry).where(DailyMealEntry.school_id == school_id, DailyMealEntry.meal_date == meal_date)
     )
-    plan = db.scalar(
-        select(MenuSchedule).where(
-            MenuSchedule.school_id == school_id,
-            MenuSchedule.menu_date == meal_date,
-            MenuSchedule.active.is_(True),
-        )
-    )
     return {
         "school": {"id": school.id, "name_en": school.name_en, "name_mr": school.name_mr},
         "attendance": _attendance_dict(attendance),
         "meal": _meal_dict(meal),
-        "planned_menu": _menu_plan_dict(plan),
     }
 
 
@@ -1877,337 +1712,3 @@ def compliance_month(school_id: str, year: int, month: int, db: Session = Depend
     m={r.meal_date:r for r in meals}; a={r.meal_date:r for r in atts}; complete={d for d in required if d in m and d in a and m[d].status=='VERIFIED' and a[d].status=='VERIFIED'}; missing=sorted(required-complete)
     pct=round((len(complete)*100/len(required)),2) if required else 100.0
     return {'required_days':len(required),'complete_days':len(complete),'missing_days':len(missing),'compliance_percent':pct,'missing_dates':[d.isoformat() for d in missing]}
-
-
-# ---------------- Master Data Administration + Custom Excel Reports ----------------
-
-MASTER_ROLE = "SYSTEM_ADMIN"
-
-
-def _master_commit(db: Session, message: str = "Saved"):
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(status_code=409, detail="Duplicate code/UDISE or referenced master data conflicts with an existing record") from exc
-    return {"ok": True, "message": message}
-
-
-def _district_dict(r: District):
-    return {"id": str(r.id), "code": r.code, "name_en": r.name_en, "name_mr": r.name_mr, "active": r.active}
-
-
-def _block_dict(r: Block):
-    return {"id": str(r.id), "code": r.code, "district_id": str(r.district_id), "district_name_en": r.district.name_en if r.district else None, "name_en": r.name_en, "name_mr": r.name_mr, "active": r.active}
-
-
-def _cluster_dict(r: Cluster):
-    return {"id": str(r.id), "code": r.code, "block_id": str(r.block_id), "block_name_en": r.block.name_en if r.block else None, "district_id": str(r.block.district_id) if r.block else None, "name_en": r.name_en, "name_mr": r.name_mr, "active": r.active}
-
-
-def _school_master_dict(r: School):
-    cluster = r.cluster
-    block = cluster.block if cluster else None
-    district = block.district if block else None
-    return {"id": str(r.id), "code": r.code, "udise_code": r.udise_code, "cluster_id": str(r.cluster_id), "cluster_name_en": cluster.name_en if cluster else None, "block_id": str(block.id) if block else None, "block_name_en": block.name_en if block else None, "district_id": str(district.id) if district else None, "district_name_en": district.name_en if district else None, "name_en": r.name_en, "name_mr": r.name_mr, "village": r.village, "class_1_5_strength": r.class_1_5_strength, "class_6_8_strength": r.class_6_8_strength, "active": r.active}
-
-
-def _ingredient_master_dict(r: Ingredient):
-    return {"id": str(r.id), "code": r.code, "name_en": r.name_en, "name_mr": r.name_mr, "category": r.category, "base_unit": r.base_unit, "reorder_level": float(r.reorder_level or 0), "safety_stock": float(r.safety_stock or 0), "track_inventory": r.track_inventory, "active": r.active}
-
-
-def _menu_master_dict(r: Menu):
-    return {"id": str(r.id), "code": r.code, "name_en": r.name_en, "name_mr": r.name_mr, "week_pattern": r.week_pattern, "day_of_week": r.day_of_week, "active": r.active}
-
-
-@router.get("/master/districts")
-def master_districts(db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    return [_district_dict(r) for r in db.scalars(select(District).order_by(District.name_en)).all()]
-
-
-@router.post("/master/districts")
-def master_add_district(payload: DistrictMasterInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    row = District(**payload.model_dump(), created_by=user.username); db.add(row); _master_commit(db); db.refresh(row); return _district_dict(row)
-
-
-@router.put("/master/districts/{row_id}")
-def master_edit_district(row_id: str, payload: DistrictMasterInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    row=db.get(District,row_id)
-    if not row: raise HTTPException(status_code=404,detail="District not found")
-    for k,v in payload.model_dump().items(): setattr(row,k,v)
-    _master_commit(db); db.refresh(row); return _district_dict(row)
-
-
-@router.get("/master/blocks")
-def master_blocks(db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    return [_block_dict(r) for r in db.scalars(select(Block).order_by(Block.name_en)).all()]
-
-
-@router.post("/master/blocks")
-def master_add_block(payload: BlockMasterInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    if not db.get(District,payload.district_id): raise HTTPException(status_code=422,detail="District not found")
-    row=Block(**payload.model_dump(),created_by=user.username); db.add(row); _master_commit(db); db.refresh(row); return _block_dict(row)
-
-
-@router.put("/master/blocks/{row_id}")
-def master_edit_block(row_id: str, payload: BlockMasterInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    row=db.get(Block,row_id)
-    if not row: raise HTTPException(status_code=404,detail="Taluka/Block not found")
-    if not db.get(District,payload.district_id): raise HTTPException(status_code=422,detail="District not found")
-    for k,v in payload.model_dump().items(): setattr(row,k,v)
-    _master_commit(db); db.refresh(row); return _block_dict(row)
-
-
-@router.get("/master/clusters")
-def master_clusters(db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    return [_cluster_dict(r) for r in db.scalars(select(Cluster).order_by(Cluster.name_en)).all()]
-
-
-@router.post("/master/clusters")
-def master_add_cluster(payload: ClusterMasterInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    if not db.get(Block,payload.block_id): raise HTTPException(status_code=422,detail="Taluka/Block not found")
-    row=Cluster(**payload.model_dump(),created_by=user.username); db.add(row); _master_commit(db); db.refresh(row); return _cluster_dict(row)
-
-
-@router.put("/master/clusters/{row_id}")
-def master_edit_cluster(row_id: str, payload: ClusterMasterInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    row=db.get(Cluster,row_id)
-    if not row: raise HTTPException(status_code=404,detail="Cluster not found")
-    if not db.get(Block,payload.block_id): raise HTTPException(status_code=422,detail="Taluka/Block not found")
-    for k,v in payload.model_dump().items(): setattr(row,k,v)
-    _master_commit(db); db.refresh(row); return _cluster_dict(row)
-
-
-@router.get("/master/schools")
-def master_schools(db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    return [_school_master_dict(r) for r in db.scalars(select(School).order_by(School.name_en)).all()]
-
-
-@router.post("/master/schools")
-def master_add_school(payload: SchoolMasterInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    if not db.get(Cluster,payload.cluster_id): raise HTTPException(status_code=422,detail="Cluster not found")
-    row=School(**payload.model_dump(),created_by=user.username); db.add(row); _master_commit(db); db.refresh(row); return _school_master_dict(row)
-
-
-@router.put("/master/schools/{row_id}")
-def master_edit_school(row_id: str, payload: SchoolMasterInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    row=db.get(School,row_id)
-    if not row: raise HTTPException(status_code=404,detail="School not found")
-    if not db.get(Cluster,payload.cluster_id): raise HTTPException(status_code=422,detail="Cluster not found")
-    for k,v in payload.model_dump().items(): setattr(row,k,v)
-    _master_commit(db); db.refresh(row); return _school_master_dict(row)
-
-
-@router.get("/master/ingredients")
-def master_ingredients(db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    return [_ingredient_master_dict(r) for r in db.scalars(select(Ingredient).order_by(Ingredient.name_en)).all()]
-
-
-@router.post("/master/ingredients")
-def master_add_ingredient(payload: IngredientMasterInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    row=Ingredient(**payload.model_dump(),created_by=user.username); db.add(row); _master_commit(db); db.refresh(row); return _ingredient_master_dict(row)
-
-
-@router.put("/master/ingredients/{row_id}")
-def master_edit_ingredient(row_id: str, payload: IngredientMasterInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    row=db.get(Ingredient,row_id)
-    if not row: raise HTTPException(status_code=404,detail="Ingredient not found")
-    for k,v in payload.model_dump().items(): setattr(row,k,v)
-    _master_commit(db); db.refresh(row); return _ingredient_master_dict(row)
-
-
-@router.get("/master/menus")
-def master_menus(db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    return [_menu_master_dict(r) for r in db.scalars(select(Menu).order_by(Menu.name_en)).all()]
-
-
-@router.post("/master/menus")
-def master_add_menu(payload: MenuMasterInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    row=Menu(**payload.model_dump(),created_by=user.username); db.add(row); _master_commit(db); db.refresh(row); return _menu_master_dict(row)
-
-
-@router.put("/master/menus/{row_id}")
-def master_edit_menu(row_id: str, payload: MenuMasterInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    row=db.get(Menu,row_id)
-    if not row: raise HTTPException(status_code=404,detail="Menu not found")
-    for k,v in payload.model_dump().items(): setattr(row,k,v)
-    _master_commit(db); db.refresh(row); return _menu_master_dict(row)
-
-
-@router.get("/master/menus/{menu_id}/recipe-standard")
-def master_recipe_standard(menu_id: str, on_date: date = date.today(), db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    menu=db.get(Menu,menu_id)
-    if not menu: raise HTTPException(status_code=404,detail="Menu not found")
-    ingredients=db.scalars(select(Ingredient).where(Ingredient.active.is_(True)).order_by(Ingredient.name_en)).all()
-    recipes=db.scalars(select(Recipe).where(Recipe.menu_id==menu_id,Recipe.active.is_(True),Recipe.effective_from<=on_date,(Recipe.effective_to.is_(None)|(Recipe.effective_to>=on_date)))).all()
-    by={}
-    for r in recipes:
-        by.setdefault(str(r.ingredient_id),{})[r.student_group]=r
-    items=[]
-    for ing in ingredients:
-        grp=by.get(str(ing.id),{})
-        r15=grp.get("CLASS_1_5"); r68=grp.get("CLASS_6_8"); rall=grp.get("ALL")
-        q15=Decimal(str(r15.qty_per_student if r15 else 0))+Decimal(str(rall.qty_per_student if rall else 0))
-        q68=Decimal(str(r68.qty_per_student if r68 else 0))+Decimal(str(rall.qty_per_student if rall else 0))
-        items.append({"ingredient_id":str(ing.id),"code":ing.code,"name_en":ing.name_en,"name_mr":ing.name_mr,"unit":(r15.measurement_unit if r15 else r68.measurement_unit if r68 else rall.measurement_unit if rall else ing.base_unit),"qty_class_1_5":float(q15),"qty_class_6_8":float(q68)})
-    return {"menu":_menu_master_dict(menu),"on_date":on_date.isoformat(),"items":items}
-
-
-@router.put("/master/menus/{menu_id}/recipe-standard")
-def save_master_recipe_standard(menu_id: str, payload: RecipeStandardInput, db: Session = Depends(get_db), user: CurrentUser = Depends(require_roles(MASTER_ROLE))):
-    menu=db.get(Menu,menu_id)
-    if not menu: raise HTTPException(status_code=404,detail="Menu not found")
-    item_map={x.ingredient_id:x for x in payload.items}
-    for ing_id,line in item_map.items():
-        if not db.get(Ingredient,ing_id): raise HTTPException(status_code=422,detail=f"Ingredient not found: {ing_id}")
-        for group,qty in (("CLASS_1_5",line.qty_class_1_5),("CLASS_6_8",line.qty_class_6_8)):
-            same=db.scalar(select(Recipe).where(Recipe.menu_id==menu_id,Recipe.ingredient_id==ing_id,Recipe.student_group==group,Recipe.effective_from==payload.effective_from))
-            current=db.scalar(select(Recipe).where(Recipe.menu_id==menu_id,Recipe.ingredient_id==ing_id,Recipe.student_group==group,Recipe.active.is_(True),Recipe.effective_from<=payload.effective_from,(Recipe.effective_to.is_(None)|(Recipe.effective_to>=payload.effective_from))).order_by(Recipe.effective_from.desc()))
-            if qty <= 0:
-                if same:
-                    same.active=False
-                elif current and current.effective_from < payload.effective_from:
-                    current.effective_to=payload.effective_from-timedelta(days=1)
-                continue
-            if same:
-                same.qty_per_student=qty; same.measurement_unit=line.unit; same.active=True; same.effective_to=None
-            else:
-                if current and current.effective_from < payload.effective_from:
-                    current.effective_to=payload.effective_from-timedelta(days=1)
-                version=(db.scalar(select(func.coalesce(func.max(Recipe.version),0)).where(Recipe.menu_id==menu_id,Recipe.ingredient_id==ing_id,Recipe.student_group==group)) or 0)+1
-                db.add(Recipe(menu_id=menu_id,ingredient_id=ing_id,student_group=group,qty_per_student=qty,measurement_unit=line.unit,effective_from=payload.effective_from,version=version,active=True,created_by=user.username))
-    _master_commit(db,"Recipe standards saved")
-    return {"ok":True,"menu_id":menu_id,"effective_from":payload.effective_from.isoformat()}
-
-
-REPORT_DEFS = {
-    "SCHOOL_MASTER": {
-        "title_en": "School Master", "title_mr": "शाळा मास्टर",
-        "columns": [
-            ("district","District","जिल्हा"),("block","Taluka / Block","तालुका"),("cluster","Cluster","केंद्र"),("school_code","School Code","शाळा कोड"),("udise_code","UDISE Code","UDISE कोड"),("school_name","School Name","शाळेचे नाव"),("village","Village","गाव"),("class_1_5_strength","Class 1-5 Strength","इ. 1-5 पटसंख्या"),("class_6_8_strength","Class 6-8 Strength","इ. 6-8 पटसंख्या"),("active","Active","सक्रिय")],
-    },
-    "MENU_RECIPES": {
-        "title_en":"Menu & Standard Ingredient Quantities","title_mr":"मेनू व प्रमाणित साहित्य मात्रा",
-        "columns":[("menu_code","Menu Code","मेनू कोड"),("menu_name","Menu Name","मेनू नाव"),("ingredient_code","Ingredient Code","साहित्य कोड"),("ingredient_name","Ingredient","साहित्य"),("class_1_5_qty","Qty/Student Class 1-5","इ.1-5 प्रति विद्यार्थी मात्रा"),("class_6_8_qty","Qty/Student Class 6-8","इ.6-8 प्रति विद्यार्थी मात्रा"),("unit","Unit","एकक"),("effective_from","Effective From","लागू दिनांक")],
-    },
-    "DAILY_MEALS": {
-        "title_en":"Daily Meals","title_mr":"दैनिक आहार",
-        "columns":[("date","Date","दिनांक"),("district","District","जिल्हा"),("block","Taluka / Block","तालुका"),("cluster","Cluster","केंद्र"),("school_name","School","शाळा"),("udise_code","UDISE","UDISE"),("menu_name","Menu","मेनू"),("present_1_5","Present 1-5","उपस्थित 1-5"),("present_6_8","Present 6-8","उपस्थित 6-8"),("meals_1_5","Meals 1-5","भोजन 1-5"),("meals_6_8","Meals 6-8","भोजन 6-8"),("total_meals","Total Meals","एकूण भोजन"),("tasting_done","Tasting","चव तपासणी"),("hygiene_ok","Hygiene","स्वच्छता"),("status","Status","स्थिती")],
-    },
-    "STOCK_LEDGER": {
-        "title_en":"Stock Ledger","title_mr":"साठा नोंदवही",
-        "columns":[("date","Date","दिनांक"),("district","District","जिल्हा"),("block","Taluka / Block","तालुका"),("cluster","Cluster","केंद्र"),("school_name","School","शाळा"),("ingredient","Ingredient","साहित्य"),("transaction_type","Transaction Type","व्यवहार प्रकार"),("quantity","Quantity","मात्रा"),("unit","Unit","एकक"),("reference_no","Reference No.","संदर्भ क्र."),("remarks","Remarks","शेरा")],
-    },
-    "MONTHLY_RETURNS": {
-        "title_en":"Monthly School Returns","title_mr":"मासिक शाळा परतावा",
-        "columns":[("year","Year","वर्ष"),("month","Month","महिना"),("district","District","जिल्हा"),("block","Taluka / Block","तालुका"),("cluster","Cluster","केंद्र"),("school_name","School","शाळा"),("udise_code","UDISE","UDISE"),("recorded_days","Recorded Days","नोंद दिवस"),("verified_days","Verified Days","पडताळलेले दिवस"),("incomplete_days","Incomplete Days","अपूर्ण दिवस"),("attendance_1_5","Attendance 1-5","उपस्थिती 1-5"),("attendance_6_8","Attendance 6-8","उपस्थिती 6-8"),("meals_1_5","Meals 1-5","भोजन 1-5"),("meals_6_8","Meals 6-8","भोजन 6-8"),("total_meals","Total Meals","एकूण भोजन"),("status","Status","स्थिती")],
-    },
-}
-
-
-def _school_matches_filters(s: School, payload: CustomReportInput) -> bool:
-    c=s.cluster; b=c.block if c else None; d=b.district if b else None
-    return (not payload.school_id or str(s.id)==payload.school_id) and (not payload.cluster_id or (c and str(c.id)==payload.cluster_id)) and (not payload.block_id or (b and str(b.id)==payload.block_id)) and (not payload.district_id or (d and str(d.id)==payload.district_id))
-
-
-def _report_school_ids(db: Session, user: CurrentUser, payload: CustomReportInput) -> list[str]:
-    allowed=set(_accessible_school_ids(db,user)); schools=db.scalars(select(School).where(School.id.in_(allowed))).all() if allowed else []
-    return [str(s.id) for s in schools if _school_matches_filters(s,payload)]
-
-
-def _org_names(school: School, lang: str):
-    c=school.cluster; b=c.block if c else None; d=b.district if b else None
-    pick=lambda x: (x.name_mr if lang=="mr" else x.name_en) if x else ""
-    return pick(d),pick(b),pick(c),(school.name_mr if lang=="mr" else school.name_en)
-
-
-def _custom_report_rows(db: Session, user: CurrentUser, p: CustomReportInput):
-    lang=p.language; school_ids=_report_school_ids(db,user,p)
-    schools={str(x.id):x for x in db.scalars(select(School).where(School.id.in_(school_ids))).all()} if school_ids else {}
-    rows=[]
-    if p.report_type=="SCHOOL_MASTER":
-        for s in schools.values():
-            d,b,c,sn=_org_names(s,lang); rows.append({"district":d,"block":b,"cluster":c,"school_code":s.code,"udise_code":s.udise_code,"school_name":sn,"village":s.village or "","class_1_5_strength":s.class_1_5_strength,"class_6_8_strength":s.class_6_8_strength,"active":s.active})
-    elif p.report_type=="MENU_RECIPES":
-        menus=db.scalars(select(Menu).where(Menu.active.is_(True)).order_by(Menu.name_en)).all()
-        for m in menus:
-            recs=db.scalars(select(Recipe).where(Recipe.menu_id==m.id,Recipe.active.is_(True)).order_by(Recipe.ingredient_id,Recipe.effective_from.desc())).all()
-            grouped={}
-            for r in recs:
-                k=(str(r.ingredient_id),r.effective_from)
-                grouped.setdefault(k,{})[r.student_group]=r
-            for (ing_id,eff),g in grouped.items():
-                ing=db.get(Ingredient,ing_id)
-                if not ing: continue
-                r15=g.get("CLASS_1_5"); r68=g.get("CLASS_6_8"); rall=g.get("ALL")
-                rows.append({"menu_code":m.code,"menu_name":m.name_mr if lang=="mr" else m.name_en,"ingredient_code":ing.code,"ingredient_name":ing.name_mr if lang=="mr" else ing.name_en,"class_1_5_qty":float(Decimal(str(r15.qty_per_student if r15 else 0))+Decimal(str(rall.qty_per_student if rall else 0))),"class_6_8_qty":float(Decimal(str(r68.qty_per_student if r68 else 0))+Decimal(str(rall.qty_per_student if rall else 0))),"unit":(r15.measurement_unit if r15 else r68.measurement_unit if r68 else rall.measurement_unit if rall else ing.base_unit),"effective_from":eff.isoformat()})
-    elif p.report_type=="DAILY_MEALS":
-        q=select(DailyMealEntry).where(DailyMealEntry.school_id.in_(school_ids)) if school_ids else select(DailyMealEntry).where(False)
-        if p.date_from:q=q.where(DailyMealEntry.meal_date>=p.date_from)
-        if p.date_to:q=q.where(DailyMealEntry.meal_date<=p.date_to)
-        meals=db.scalars(q.order_by(DailyMealEntry.meal_date,DailyMealEntry.school_id)).all()
-        for m in meals:
-            s=schools.get(str(m.school_id)); a=db.scalar(select(DailyAttendance).where(DailyAttendance.school_id==m.school_id,DailyAttendance.meal_date==m.meal_date)); menu=m.menu
-            if not s: continue
-            d,b,c,sn=_org_names(s,lang); rows.append({"date":m.meal_date.isoformat(),"district":d,"block":b,"cluster":c,"school_name":sn,"udise_code":s.udise_code,"menu_name":(menu.name_mr if lang=="mr" else menu.name_en) if menu else "","present_1_5":a.class_1_5_present if a else 0,"present_6_8":a.class_6_8_present if a else 0,"meals_1_5":m.meals_class_1_5,"meals_6_8":m.meals_class_6_8,"total_meals":m.total_meals,"tasting_done":m.tasting_done,"hygiene_ok":m.hygiene_ok,"status":m.status})
-    elif p.report_type=="STOCK_LEDGER":
-        q=select(StockTransaction).where(StockTransaction.school_id.in_(school_ids)) if school_ids else select(StockTransaction).where(False)
-        if p.date_from:q=q.where(StockTransaction.transaction_date>=p.date_from)
-        if p.date_to:q=q.where(StockTransaction.transaction_date<=p.date_to)
-        for x in db.scalars(q.order_by(StockTransaction.transaction_date,StockTransaction.school_id)).all():
-            s=schools.get(str(x.school_id)); ing=x.ingredient
-            if not s or not ing: continue
-            d,b,c,sn=_org_names(s,lang); rows.append({"date":x.transaction_date.isoformat(),"district":d,"block":b,"cluster":c,"school_name":sn,"ingredient":ing.name_mr if lang=="mr" else ing.name_en,"transaction_type":x.transaction_type,"quantity":float(x.quantity),"unit":ing.base_unit,"reference_no":x.reference_no or "","remarks":x.remarks or ""})
-    elif p.report_type=="MONTHLY_RETURNS":
-        q=select(MonthlySchoolReturn).where(MonthlySchoolReturn.school_id.in_(school_ids)) if school_ids else select(MonthlySchoolReturn).where(False)
-        if p.year:q=q.where(MonthlySchoolReturn.year==p.year)
-        if p.month:q=q.where(MonthlySchoolReturn.month==p.month)
-        for r in db.scalars(q.order_by(MonthlySchoolReturn.year,MonthlySchoolReturn.month,MonthlySchoolReturn.school_id)).all():
-            s=schools.get(str(r.school_id))
-            if not s: continue
-            d,b,c,sn=_org_names(s,lang); rows.append({"year":r.year,"month":r.month,"district":d,"block":b,"cluster":c,"school_name":sn,"udise_code":s.udise_code,"recorded_days":r.recorded_days,"verified_days":r.verified_days,"incomplete_days":r.incomplete_days,"attendance_1_5":r.attendance_class_1_5,"attendance_6_8":r.attendance_class_6_8,"meals_1_5":r.meals_class_1_5,"meals_6_8":r.meals_class_6_8,"total_meals":r.total_meals,"status":r.status})
-    else:
-        raise HTTPException(status_code=422,detail="Unknown report type")
-    return rows
-
-
-@router.get("/custom-reports/definitions")
-def custom_report_definitions(user: CurrentUser = Depends(get_current_user)):
-    return [{"report_type":k,"title_en":v["title_en"],"title_mr":v["title_mr"],"columns":[{"key":c[0],"label_en":c[1],"label_mr":c[2]} for c in v["columns"]]} for k,v in REPORT_DEFS.items()]
-
-
-@router.post("/custom-reports/preview")
-def custom_report_preview(payload: CustomReportInput, db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
-    if payload.report_type not in REPORT_DEFS: raise HTTPException(status_code=422,detail="Unknown report type")
-    definition=REPORT_DEFS[payload.report_type]; allowed=[c[0] for c in definition["columns"]]; selected=[c for c in payload.columns if c in allowed] or allowed
-    rows=_custom_report_rows(db,user,payload)
-    return {"columns":[{"key":k,"label":next((c[2] if payload.language=="mr" else c[1] for c in definition["columns"] if c[0]==k),k)} for k in selected],"rows":[{k:r.get(k) for k in selected} for r in rows[:payload.max_preview_rows]],"total_rows":len(rows)}
-
-
-@router.post("/custom-reports/excel")
-def custom_report_excel(payload: CustomReportInput, db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)):
-    if payload.report_type not in REPORT_DEFS: raise HTTPException(status_code=422,detail="Unknown report type")
-    definition=REPORT_DEFS[payload.report_type]; allowed=[c[0] for c in definition["columns"]]; selected=[c for c in payload.columns if c in allowed] or allowed; rows=_custom_report_rows(db,user,payload)
-    try:
-        import xlsxwriter
-    except ImportError as exc:
-        raise HTTPException(status_code=500,detail="Excel writer dependency is not installed. Rebuild backend image.") from exc
-    output=BytesIO(); wb=xlsxwriter.Workbook(output,{"in_memory":True}); ws=wb.add_worksheet("Report")
-    title=definition["title_mr"] if payload.language=="mr" else definition["title_en"]
-    title_fmt=wb.add_format({"bold":True,"font_size":16,"align":"center","valign":"vcenter","bg_color":"#DDEBF7"}); header_fmt=wb.add_format({"bold":True,"font_color":"#FFFFFF","bg_color":"#1F4E78","border":1,"text_wrap":True}); text_fmt=wb.add_format({"border":1}); num_fmt=wb.add_format({"border":1,"num_format":"0.000"}); date_fmt=wb.add_format({"border":1,"num_format":"yyyy-mm-dd"})
-    if selected: ws.merge_range(0,0,0,len(selected)-1,title,title_fmt)
-    ws.write(1,0,("Generated: " if payload.language=="en" else "तयार दिनांक: ")+datetime.now().strftime("%Y-%m-%d %H:%M"))
-    labels={c[0]:(c[2] if payload.language=="mr" else c[1]) for c in definition["columns"]}
-    for col,key in enumerate(selected): ws.write(3,col,labels.get(key,key),header_fmt)
-    for ri,row in enumerate(rows,start=4):
-        for ci,key in enumerate(selected):
-            val=row.get(key,"")
-            if isinstance(val,bool): val=("Yes" if val else "No") if payload.language=="en" else ("होय" if val else "नाही")
-            if isinstance(val,(int,float)): ws.write_number(ri,ci,float(val),num_fmt)
-            else: ws.write(ri,ci,"" if val is None else str(val),text_fmt)
-    ws.freeze_panes(4,0); ws.autofilter(3,0,max(3,3+len(rows)),max(0,len(selected)-1))
-    for ci,key in enumerate(selected):
-        values=[str(labels.get(key,key))]+[str(r.get(key,"") or "") for r in rows[:1000]]; width=min(38,max(11,max(len(x) for x in values)+2)); ws.set_column(ci,ci,width)
-    ws.set_landscape(); ws.fit_to_pages(1,0); ws.set_margins(0.3,0.3,0.5,0.5); wb.close(); output.seek(0)
-    filename=f"PM_POSHAN_{payload.report_type}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-    return StreamingResponse(output,media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",headers={"Content-Disposition":f'attachment; filename="{filename}"'})
