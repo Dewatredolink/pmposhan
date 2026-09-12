@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+!frontend/.env.standalone
 backup_*
 backups/
 *.dump
@@ -16,3 +17,7 @@ __pycache__/
 .venv-standalone/
 standalone/windows/build/
 standalone/windows/dist/
+frontend/node_modules/
+frontend/dist/
+frontend/src-tauri/target/
+frontend/src-tauri/binaries/*.exe
