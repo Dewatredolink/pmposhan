@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -21,8 +22,42 @@ def _default_data_dir() -> Path:
     return Path.home() / ".pmposhan"
 
 
+def _migrate_legacy_programdata(target: Path) -> None:
+    """Copy legacy ProgramData standalone data on first run of the new bundle.
+
+    Older Windows test bundles wrote mutable data to C:\ProgramData\PMPoshan.
+    The current-user installer now uses LocalAppData. If the new location does
+    not yet contain a database, preserve the existing installation id, users,
+    school data, license state, reports, and backups by copying the legacy tree.
+    The legacy source is intentionally left untouched as a safety fallback.
+    """
+    program_data = os.environ.get("PROGRAMDATA")
+    if not program_data:
+        return
+
+    legacy = Path(program_data) / "PMPoshan"
+    legacy_db = legacy / "data" / "pmposhan.db"
+    target_db = target / "data" / "pmposhan.db"
+
+    if target_db.exists() or not legacy_db.exists():
+        return
+
+    if legacy.resolve() == target.resolve():
+        return
+
+    target.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(legacy, target, dirs_exist_ok=True)
+
+
 def _prepare_environment() -> None:
-    os.environ.setdefault("PMPOSHAN_DATA_DIR", str(_default_data_dir()))
+    configured = (os.environ.get("PMPOSHAN_DATA_DIR") or "").strip()
+    if configured:
+        data_dir = Path(configured)
+    else:
+        data_dir = _default_data_dir()
+        _migrate_legacy_programdata(data_dir)
+        os.environ["PMPOSHAN_DATA_DIR"] = str(data_dir)
+
     os.environ.setdefault("LICENSE_PUBLIC_KEY_B64", PUBLIC_LICENSE_KEY_B64)
     os.environ.setdefault(
         "PMPOSHAN_ALLOWED_ORIGINS",
