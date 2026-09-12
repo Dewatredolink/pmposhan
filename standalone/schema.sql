@@ -211,6 +211,72 @@ CREATE TABLE IF NOT EXISTS stock_transactions (
   UNIQUE (school_id, ingredient_id, reference_type, reference_id, transaction_type)
 );
 
+CREATE TABLE IF NOT EXISTS stock_receipts (
+  id TEXT PRIMARY KEY,
+  school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  receipt_date TEXT NOT NULL,
+  receipt_no TEXT NOT NULL,
+  source_name TEXT,
+  remarks TEXT,
+  entered_by_user_id TEXT REFERENCES local_users(id) ON DELETE SET NULL,
+  entered_by_username TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (school_id, receipt_no)
+);
+
+CREATE TABLE IF NOT EXISTS stock_receipt_lines (
+  id TEXT PRIMARY KEY,
+  receipt_id TEXT NOT NULL REFERENCES stock_receipts(id) ON DELETE CASCADE,
+  ingredient_id TEXT NOT NULL REFERENCES ingredients(id) ON DELETE RESTRICT,
+  quantity REAL NOT NULL CHECK (quantity > 0),
+  unit_cost REAL CHECK (unit_cost IS NULL OR unit_cost >= 0),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (receipt_id, ingredient_id)
+);
+
+CREATE TABLE IF NOT EXISTS stock_adjustments (
+  id TEXT PRIMARY KEY,
+  school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  adjustment_date TEXT NOT NULL,
+  adjustment_no TEXT NOT NULL,
+  ingredient_id TEXT NOT NULL REFERENCES ingredients(id) ON DELETE RESTRICT,
+  quantity REAL NOT NULL CHECK (quantity <> 0),
+  reason_code TEXT NOT NULL,
+  remarks TEXT,
+  entered_by_user_id TEXT REFERENCES local_users(id) ON DELETE SET NULL,
+  entered_by_username TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (school_id, adjustment_no)
+);
+
+CREATE TABLE IF NOT EXISTS physical_stock_verifications (
+  id TEXT PRIMARY KEY,
+  school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  verification_date TEXT NOT NULL,
+  verification_no TEXT NOT NULL,
+  remarks TEXT,
+  entered_by_user_id TEXT REFERENCES local_users(id) ON DELETE SET NULL,
+  entered_by_username TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (school_id, verification_no)
+);
+
+CREATE TABLE IF NOT EXISTS physical_stock_verification_lines (
+  id TEXT PRIMARY KEY,
+  verification_id TEXT NOT NULL REFERENCES physical_stock_verifications(id) ON DELETE CASCADE,
+  ingredient_id TEXT NOT NULL REFERENCES ingredients(id) ON DELETE RESTRICT,
+  system_quantity REAL NOT NULL,
+  physical_quantity REAL NOT NULL CHECK (physical_quantity >= 0),
+  variance_quantity REAL NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (verification_id, ingredient_id)
+);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   id TEXT PRIMARY KEY,
   occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -245,4 +311,9 @@ CREATE INDEX IF NOT EXISTS ix_menu_schedules_school_date ON menu_schedules(schoo
 CREATE INDEX IF NOT EXISTS ix_daily_attendance_school_date ON daily_attendance(school_id, meal_date);
 CREATE INDEX IF NOT EXISTS ix_daily_meal_school_date ON daily_meal_entries(school_id, meal_date);
 CREATE INDEX IF NOT EXISTS ix_stock_transactions_balance ON stock_transactions(school_id, ingredient_id, transaction_date);
+CREATE INDEX IF NOT EXISTS ix_stock_receipts_school_date ON stock_receipts(school_id, receipt_date);
+CREATE INDEX IF NOT EXISTS ix_stock_receipt_lines_receipt ON stock_receipt_lines(receipt_id);
+CREATE INDEX IF NOT EXISTS ix_stock_adjustments_school_date ON stock_adjustments(school_id, adjustment_date);
+CREATE INDEX IF NOT EXISTS ix_physical_stock_verifications_school_date ON physical_stock_verifications(school_id, verification_date);
+CREATE INDEX IF NOT EXISTS ix_physical_stock_verification_lines_header ON physical_stock_verification_lines(verification_id);
 CREATE INDEX IF NOT EXISTS ix_audit_occurred_at ON audit_log(occurred_at);
