@@ -25,6 +25,17 @@ def _prepare_environment() -> None:
     )
 
 
+def _bridge_port() -> int:
+    raw = (os.environ.get("PMPOSHAN_BRIDGE_PORT") or "8765").strip()
+    try:
+        port = int(raw)
+    except ValueError as exc:
+        raise RuntimeError("PMPOSHAN_BRIDGE_PORT_INVALID") from exc
+    if port < 1024 or port > 65535:
+        raise RuntimeError("PMPOSHAN_BRIDGE_PORT_INVALID")
+    return port
+
+
 def _configure_bundled_schema(runtime_module: object) -> None:
     bundle_root = getattr(sys, "_MEIPASS", None)
     if bundle_root:
@@ -44,7 +55,7 @@ def main() -> None:
 
     # Standalone bridge is intentionally loopback-only. Never expose it on
     # 0.0.0.0 from the packaged desktop application.
-    uvicorn.run(app, host="127.0.0.1", port=8765, log_level="warning")
+    uvicorn.run(app, host="127.0.0.1", port=_bridge_port(), log_level="warning")
 
 
 if __name__ == "__main__":
