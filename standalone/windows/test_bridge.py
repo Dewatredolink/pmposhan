@@ -36,7 +36,9 @@ def main() -> None:
 
         setup = client.get("/api/v1/setup/status")
         assert setup.status_code == 200, setup.text
-        assert setup.json()["needs_admin"] is True
+        setup_body = setup.json()
+        assert setup_body["admin_created"] is False, setup_body
+        assert setup_body["ready"] is False, setup_body
 
         created = client.post(
             "/api/v1/setup/admin",
@@ -47,6 +49,10 @@ def main() -> None:
             },
         )
         assert created.status_code == 200, created.text
+
+        setup_after_admin = client.get("/api/v1/setup/status")
+        assert setup_after_admin.status_code == 200, setup_after_admin.text
+        assert setup_after_admin.json()["admin_created"] is True, setup_after_admin.text
 
         login = client.post(
             "/api/v1/auth/login",
@@ -79,6 +85,10 @@ def main() -> None:
         )
         assert activate.status_code == 200, activate.text
         assert activate.json()["active"] is True
+
+        setup_ready = client.get("/api/v1/setup/status")
+        assert setup_ready.status_code == 200, setup_ready.text
+        assert setup_ready.json()["ready"] is True, setup_ready.text
 
         backup = client.post("/api/v1/backups", headers=headers)
         assert backup.status_code == 200, backup.text
