@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-
-const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8765/api/v1';
+import { publicApiFetch } from '../auth';
 
 export async function fetchStandaloneSetupStatus(){
-  const r=await fetch(`${apiBase}/setup/status`);
+  const r=await publicApiFetch('/setup/status');
   if(!r.ok) throw new Error(`Setup status HTTP ${r.status}`);
   return r.json();
 }
@@ -22,7 +21,7 @@ export default function StandaloneSetup({onCreated}:{onCreated:()=>void}){
     if(password!==confirm){setMessage('Passwords do not match.');return}
     setBusy(true);
     try{
-      const r=await fetch(`${apiBase}/setup/admin`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password,display_name:displayName})});
+      const r=await publicApiFetch('/setup/admin',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username,password,display_name:displayName})});
       const body=await r.json().catch(()=>({}));
       if(!r.ok) throw new Error(body.detail||`Setup HTTP ${r.status}`);
       onCreated();
