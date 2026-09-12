@@ -23,6 +23,18 @@ function defaultEnd(): string {
   return isoDate(d);
 }
 
+function friendlyError(error: unknown): string {
+  const code = error instanceof Error ? error.message : String(error);
+  const messages: Record<string, string> = {
+    PRIVATE_KEY_BASE64_INVALID: 'The signing-key text is not valid Base64. Use only the exact protected PRIVATE_KEY_B64.txt content or load that .txt file locally.',
+    PRIVATE_KEY_INVALID_LENGTH: 'The decoded signing key is not a 32-byte Ed25519 seed. Use the protected authority seed file created for PM POSHAN.',
+    PRIVATE_KEY_PUBLIC_KEY_MISMATCH: 'This is not the PM POSHAN authority signing key. The derived public key does not match the trusted public key.',
+    AUTHORITY_PIN_TOO_SHORT: 'Authority PIN must be at least 8 characters.',
+    AUTHORITY_PIN_INVALID: 'Authority PIN is incorrect.',
+  };
+  return messages[code] || code;
+}
+
 async function loadAuthorityKey(): Promise<EncryptedAuthorityKey | null> {
   const { value } = await Preferences.get({ key: KEY_RECORD });
   if (!value) return null;
@@ -50,10 +62,26 @@ export default function App() {
   });
 
   useEffect(() => {
-    loadAuthorityKey().then(setKeyRecord).catch(e => setMessage(String(e)));
+    loadAuthorityKey().then(setKeyRecord).catch(e => setMessage(friendlyError(e)));
   }, []);
 
   const keyStatus = useMemo(() => keyRecord?.public_key_b64 === EXPECTED_PUBLIC_KEY_B64, [keyRecord]);
+
+  async function loadKeyFile(event: React.ChangeEvent<HTMLInputElement>) {
+    setMessage('');
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      if (file.size > 16384) throw new Error('KEY_FILE_TOO_LARGE');
+      const text = await file.text();
+      setSeedText(text);
+      setMessage('Key text loaded locally from the selected file. It has not been uploaded anywhere.');
+    } catch (e) {
+      setMessage(e instanceof Error && e.message === 'KEY_FILE_TOO_LARGE' ? 'The selected key file is unexpectedly large.' : friendlyError(e));
+    } finally {
+      event.target.value = '';
+    }
+  }
 
   async function importKey() {
     setMessage('');
@@ -63,15 +91,15 @@ export default function App() {
     }
     setBusy(true);
     try {
-      const record = await encryptAuthoritySeed(seedText.trim(), importPin);
+      const record = await encryptAuthoritySeed(seedText, importPin);
       await Preferences.set({ key: KEY_RECORD, value: JSON.stringify(record) });
       setKeyRecord(record);
       setSeedText('');
       setImportPin('');
       setImportPin2('');
-      setMessage('Signing key imported and encrypted on this Android device.');
+      setMessage('Signing key imported and encrypted on this Android device. Delete any temporary plaintext copy from the phone after confirming this status.');
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : String(e));
+      setMessage(friendlyError(e));
     } finally {
       setBusy(false);
     }
@@ -127,7 +155,7 @@ export default function App() {
       setSignPin('');
       setMessage(`License created: ${pkg.license.license_id}`);
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : String(e));
+      setMessage(friendlyError(e));
     } finally {
       setBusy(false);
     }
@@ -155,6 +183,9 @@ export default function App() {
       <div className="warning">Do this only on your trusted authority device. Never send the private key through chat or include it in source code.</div>
       <label>Private Ed25519 seed (Base64, 32 bytes)
         <textarea rows={4} value={seedText} onChange={e => setSeedText(e.target.value)} placeholder="Paste locally from your protected authority key file" />
+      </label>
+      <label style={{display:'block',marginTop:10}}>Or load protected key text file locally
+        <input type="file" accept=".txt,text/plain" onChange={loadKeyFile} />
       </label>
       <div className="grid">
         <label>Authority PIN<input type="password" value={importPin} onChange={e => setImportPin(e.target.value)} placeholder="Minimum 8 characters" /></label>
