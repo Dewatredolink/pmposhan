@@ -2,6 +2,7 @@
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes import router
 from app.api.exact_report_routes import router as exact_report_router
+from app.api.marathi_register_routes import router as marathi_register_router
 from app.api.workbook_parity_routes import router as workbook_parity_router
 from app.core.config import settings
 from app.db.session import Base, engine
@@ -23,6 +24,7 @@ def startup():
 
 app.include_router(router, prefix="/api/v1")
 app.include_router(exact_report_router, prefix="/api/v1")
+app.include_router(marathi_register_router, prefix='/api/v1')
 app.include_router(workbook_parity_router, prefix="/api/v1")
 
 

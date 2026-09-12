@@ -66,7 +66,7 @@ export default function WorkbookRegisters({lang,schools,schoolId,setSchoolId}:Pr
   async function download(rt:string){
     setMsg('');
     try{
-      const r=await apiFetch(`/workbook-parity/register/export?report_type=${rt}&school_id=${encodeURIComponent(schoolId)}&year=${year}&month=${month}`);
+      const exportPath=lang==='mr'?'/workbook-parity/register/export-marathi':'/workbook-parity/register/export'; const r=await apiFetch(`${exportPath}?report_type=${rt}&school_id=${encodeURIComponent(schoolId)}&year=${year}&month=${month}`);
       if(!r.ok)throw new Error(await r.text());
       const b=await r.blob();
       const u=URL.createObjectURL(b);
