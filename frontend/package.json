@@ -21,7 +21,7 @@
     "@capacitor/preferences": "latest",
     "@vitejs/plugin-react": "latest",
     "vite": "latest",
-    "typescript": "latest",
+    "typescript": "5.6.3",
     "react": "latest",
     "react-dom": "latest",
     "keycloak-js": "latest",
