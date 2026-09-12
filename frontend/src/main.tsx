@@ -21,7 +21,7 @@ async function bootstrap() {
 
     if (isStandaloneMode()) {
       const setup = await fetchStandaloneSetupStatus();
-      if (setup.needs_admin) {
+      if (setup.needs_admin || setup.admin_created === false) {
         root.render(
           <React.StrictMode>
             <StandaloneSetup onCreated={() => window.location.reload()} />
