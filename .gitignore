@@ -17,6 +17,8 @@ __pycache__/
 .venv-standalone/
 standalone/windows/build/
 standalone/windows/dist/
+standalone/license_authority/build/
+standalone/license_authority/dist/
 frontend/node_modules/
 frontend/dist/
 frontend/src-tauri/target/
