@@ -10,3 +10,7 @@ backups/
 license_keys/
 
 infra/nginx/certs/
+
+__pycache__/
+*.pyc
+.venv-standalone/
