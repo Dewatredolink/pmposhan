@@ -29,7 +29,19 @@ export default function DailyMeal({lang, schools, schoolId, setSchoolId}:Props){
   const totalPresent = a.p15 + a.p68;
   const totalMeals = m.m15 + m.m68;
 
-  useEffect(()=>{ apiFetch('/menus').then(r=>r.json()).then(setMenus).catch(()=>setMenus([])); },[]);
+  useEffect(()=>{
+    apiFetch('/menus')
+      .then(async r=>{
+        if(!r.ok) throw new Error(await r.text());
+        const data = await r.json();
+        return Array.isArray(data) ? data : [];
+      })
+      .then(setMenus)
+      .catch(e=>{
+        setMenus([]);
+        setMessage(String(e));
+      });
+  },[]);
 
   async function loadDaily(clearMessage=true){
     if (!schoolId || !date) return;
