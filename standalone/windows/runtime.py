@@ -10,9 +10,12 @@ import sqlite3
 import tempfile
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
+
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 APP_VERSION = "1.0-standalone-dev"
 SCHEMA_VERSION = 1
@@ -20,6 +23,7 @@ APP_DIR = Path(os.environ.get("PMPOSHAN_DATA_DIR", Path.home() / "PMPoshanStanda
 DB_PATH = APP_DIR / "data" / "pmposhan.db"
 BACKUP_DIR = APP_DIR / "backups"
 SCHEMA_PATH = Path(__file__).resolve().parents[1] / "schema.sql"
+PRODUCT = "PM_POSHAN"
 
 
 def utc_now() -> str:
@@ -70,6 +74,8 @@ def get_installation_id() -> str:
 
 
 def _password_hash(password: str, salt: bytes | None = None) -> str:
+    if len(password) < 10:
+        raise ValueError("PASSWORD_TOO_SHORT")
     salt = salt or secrets.token_bytes(16)
     digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 310_000)
     return "pbkdf2_sha256$310000$%s$%s" % (
@@ -91,6 +97,12 @@ def verify_password(password: str, encoded: str) -> bool:
         return False
 
 
+def has_local_users() -> bool:
+    init_db()
+    with connect() as conn:
+        return int(conn.execute("SELECT COUNT(*) FROM local_users").fetchone()[0]) > 0
+
+
 def create_local_user(username: str, password: str, role: str, display_name: str = "") -> str:
     init_db()
     if role not in {"SYSTEM_ADMIN", "HEADMASTER", "TEACHER"}:
@@ -107,6 +119,12 @@ def create_local_user(username: str, password: str, role: str, display_name: str
             (user_id, username.strip().lower(), _password_hash(password), display_name.strip(), role, now, now),
         )
     return user_id
+
+
+def create_first_admin(username: str, password: str, display_name: str = "System Administrator") -> str:
+    if has_local_users():
+        raise ValueError("FIRST_ADMIN_ALREADY_CREATED")
+    return create_local_user(username, password, "SYSTEM_ADMIN", display_name)
 
 
 def authenticate(username: str, password: str) -> dict[str, Any] | None:
@@ -128,6 +146,95 @@ def authenticate(username: str, password: str) -> dict[str, Any] | None:
         }
 
 
+def _canonical(payload: dict[str, Any]) -> bytes:
+    return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+
+
+def _public_key() -> Ed25519PublicKey:
+    value = (os.getenv("LICENSE_PUBLIC_KEY_B64") or "").strip()
+    if not value:
+        raise RuntimeError("LICENSE_PUBLIC_KEY_NOT_CONFIGURED")
+    try:
+        raw = base64.b64decode(value, validate=True)
+        if len(raw) != 32:
+            raise ValueError("Ed25519 public key must be 32 bytes")
+        return Ed25519PublicKey.from_public_bytes(raw)
+    except Exception as exc:
+        raise RuntimeError("LICENSE_PUBLIC_KEY_INVALID") from exc
+
+
+def _validate_dates(payload: dict[str, Any]) -> tuple[bool, str]:
+    try:
+        valid_from = date.fromisoformat(str(payload["valid_from"]))
+        valid_until = date.fromisoformat(str(payload["valid_until"]))
+    except Exception:
+        return False, "LICENSE_DATE_INVALID"
+    today = date.today()
+    if today < valid_from:
+        return False, "LICENSE_NOT_YET_VALID"
+    if today > valid_until:
+        return False, "LICENSE_EXPIRED"
+    return True, "OK"
+
+
+def _school_count() -> int:
+    init_db()
+    with connect() as conn:
+        return int(conn.execute("SELECT COUNT(*) FROM schools").fetchone()[0])
+
+
+def _school_udises() -> list[str]:
+    init_db()
+    with connect() as conn:
+        rows = conn.execute("SELECT udise_code FROM schools WHERE udise_code IS NOT NULL").fetchall()
+        return [str(row[0]).strip() for row in rows if str(row[0]).strip()]
+
+
+def validate_license_package(payload: dict[str, Any], signature_b64: str) -> tuple[bool, str]:
+    required = {
+        "product", "license_id", "organization", "installation_id",
+        "edition", "valid_from", "valid_until", "max_schools"
+    }
+    if not required.issubset(payload):
+        return False, "LICENSE_FIELDS_MISSING"
+    if payload.get("product") != PRODUCT:
+        return False, "LICENSE_PRODUCT_MISMATCH"
+    if str(payload.get("installation_id")) != get_installation_id():
+        return False, "LICENSE_INSTALLATION_MISMATCH"
+
+    ok, reason = _validate_dates(payload)
+    if not ok:
+        return ok, reason
+
+    try:
+        max_schools = int(payload.get("max_schools"))
+        if max_schools < 1:
+            return False, "LICENSE_MAX_SCHOOLS_INVALID"
+        if _school_count() > max_schools:
+            return False, "LICENSE_SCHOOL_LIMIT_EXCEEDED"
+    except Exception:
+        return False, "LICENSE_MAX_SCHOOLS_INVALID"
+
+    edition = str(payload.get("edition") or "").strip().upper()
+    if edition in {"SCHOOL", "STANDALONE"}:
+        licensed_udise = str(payload.get("udise") or "").strip()
+        school_udises = _school_udises()
+        if school_udises:
+            if not licensed_udise:
+                return False, "LICENSE_UDISE_REQUIRED"
+            if licensed_udise not in school_udises:
+                return False, "LICENSE_UDISE_MISMATCH"
+
+    try:
+        signature = base64.b64decode(signature_b64, validate=True)
+        _public_key().verify(signature, _canonical(payload))
+    except RuntimeError as exc:
+        return False, str(exc)
+    except (InvalidSignature, ValueError, TypeError):
+        return False, "LICENSE_SIGNATURE_INVALID"
+    return True, "OK"
+
+
 def license_status() -> dict[str, Any]:
     init_db()
     installation_id = get_installation_id()
@@ -135,31 +242,31 @@ def license_status() -> dict[str, Any]:
         row = conn.execute(
             "SELECT license_json, signature_b64, activated_at FROM license_state WHERE id=1"
         ).fetchone()
-        if not row or not row["license_json"]:
+        if not row or not row["license_json"] or not row["signature_b64"]:
             return {"active": False, "reason": "LICENSE_REQUIRED", "installation_id": installation_id}
         try:
             payload = json.loads(row["license_json"])
         except Exception:
             return {"active": False, "reason": "LICENSE_CORRUPT", "installation_id": installation_id}
-        if payload.get("installation_id") != installation_id:
-            return {"active": False, "reason": "LICENSE_INSTALLATION_MISMATCH", "installation_id": installation_id}
+        ok, reason = validate_license_package(payload, row["signature_b64"])
         return {
-            "active": True,
-            "reason": "OK",
+            "active": ok,
+            "reason": reason,
             "installation_id": installation_id,
             "license": payload,
             "activated_at": row["activated_at"],
         }
 
 
-def store_license(package: dict[str, Any]) -> None:
+def store_license(package: dict[str, Any]) -> dict[str, Any]:
     init_db()
     payload = package.get("license")
     signature = package.get("signature")
     if not isinstance(payload, dict) or not isinstance(signature, str):
         raise ValueError("Invalid license package")
-    if payload.get("installation_id") != get_installation_id():
-        raise ValueError("LICENSE_INSTALLATION_MISMATCH")
+    ok, reason = validate_license_package(payload, signature)
+    if not ok:
+        raise ValueError(reason)
     now = utc_now()
     with connect() as conn:
         conn.execute(
@@ -174,17 +281,26 @@ def store_license(package: dict[str, Any]) -> None:
             """,
             (json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True), signature, now, now),
         )
+    return license_status()
+
+
+def first_run_status() -> dict[str, Any]:
+    init_db()
+    license_info = license_status()
+    return {
+        "installation_id": get_installation_id(),
+        "admin_created": has_local_users(),
+        "license_active": bool(license_info.get("active")),
+        "license_reason": license_info.get("reason"),
+        "ready": has_local_users() and bool(license_info.get("active")),
+    }
 
 
 def _consistent_db_copy(target: Path) -> None:
-    # Use explicit connection lifetimes so Windows releases the temporary
-    # snapshot file before we try to delete it. `sqlite3.Connection` used as a
-    # context manager commits/rolls back but does not close the handle.
     source = connect()
     dest = sqlite3.connect(target)
     try:
         source.backup(dest)
-        dest.commit()
     finally:
         dest.close()
         source.close()
@@ -194,16 +310,12 @@ def create_backup() -> Path:
     init_db()
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     target = BACKUP_DIR / f"PMPoshan_Backup_{stamp}.zip"
-
-    # Keep the temporary database outside the live database directory. This
-    # avoids WAL-related file locking on Windows and makes cleanup reliable.
-    fd, temp_name = tempfile.mkstemp(prefix="pmposhan-backup-", suffix=".db")
+    fd, snapshot_name = tempfile.mkstemp(prefix="pmposhan-backup-", suffix=".db")
     os.close(fd)
-    snapshot = Path(temp_name)
+    snapshot = Path(snapshot_name)
     snapshot.unlink(missing_ok=True)
-
+    _consistent_db_copy(snapshot)
     try:
-        _consistent_db_copy(snapshot)
         with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.write(snapshot, arcname="data/pmposhan.db")
             for folder in ("documents", "photos", "reports"):
@@ -272,4 +384,4 @@ def restore_backup(backup_file: str | Path) -> None:
 
 if __name__ == "__main__":
     init_db()
-    print(json.dumps({"ok": True, "db": str(DB_PATH), "installation_id": get_installation_id()}, indent=2))
+    print(json.dumps(first_run_status(), indent=2))
