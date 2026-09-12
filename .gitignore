@@ -14,3 +14,5 @@ infra/nginx/certs/
 __pycache__/
 *.pyc
 .venv-standalone/
+standalone/windows/build/
+standalone/windows/dist/
