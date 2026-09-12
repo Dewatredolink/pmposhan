@@ -66,6 +66,17 @@ def _school_count() -> int:
         except Exception:
             return 0
 
+def _school_udise_codes() -> list[str]:
+    with engine.begin() as conn:
+        try:
+            rows = conn.execute(
+                text("SELECT udise_code FROM schools WHERE udise_code IS NOT NULL")
+            ).scalars().all()
+            return [str(value).strip() for value in rows if str(value).strip()]
+        except Exception:
+            return []
+
+
 def _validate_dates(payload: dict[str, Any]) -> tuple[bool, str]:
     today = date.today()
     try:
@@ -105,6 +116,21 @@ def validate_package(payload: dict[str, Any], signature_b64: str, installation_i
             return False, "LICENSE_SCHOOL_LIMIT_EXCEEDED"
     except Exception:
         return False, "LICENSE_MAX_SCHOOLS_INVALID"
+
+    edition = str(payload.get("edition") or "").strip().upper()
+    if edition == "SCHOOL":
+        licensed_udise = str(payload.get("udise") or "").strip()
+
+        if not licensed_udise:
+            return False, "LICENSE_UDISE_REQUIRED"
+
+        school_udises = _school_udise_codes()
+
+        if not school_udises:
+            return False, "LICENSE_SCHOOL_NOT_CONFIGURED"
+
+        if licensed_udise not in school_udises:
+            return False, "LICENSE_UDISE_MISMATCH"
 
     try:
         signature = base64.b64decode(signature_b64, validate=True)
