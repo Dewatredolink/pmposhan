@@ -14,6 +14,7 @@ import MasterData from './pages/MasterData';
 import CustomReports from './pages/CustomReports';
 import WorkbookRegisters from './pages/WorkbookRegisters';
 import BrandingSettings from './pages/BrandingSettings';
+import HelpManual from './pages/HelpManual';
 import { Lang } from './i18n/translations';
 import { apiFetch, keycloak, realmRoles } from './auth';
 import './styles.css';
@@ -21,7 +22,7 @@ import './professional-ui.css';
 
 type School = { id:string; code:string; udise_code:string; name_en:string; name_mr:string; village?:string|null; class_1_5_strength:number; class_6_8_strength:number };
 type MeResponse = {username:string;email?:string|null;roles:string[];school_access:{school_id:string|null;school_name_en?:string|null;school_name_mr?:string|null;role:string;preferred_language:string}[]};
-type Page='dashboard'|'schoolProfile'|'menuPlanner'|'dailyMeal'|'stockReceipt'|'stockRegister'|'stockControls'|'monthlyVerification'|'adminDashboard'|'schoolCalendar'|'masterData'|'customReports'|'workbookRegisters'|'reports'|'branding';
+type Page='dashboard'|'schoolProfile'|'menuPlanner'|'dailyMeal'|'stockReceipt'|'stockRegister'|'stockControls'|'monthlyVerification'|'adminDashboard'|'schoolCalendar'|'masterData'|'customReports'|'workbookRegisters'|'reports'|'branding'|'help';
 type NavItem={id:Page;icon:string;en:string;mr:string;adminOnly?:boolean;management?:boolean};
 type NavGroup={en:string;mr:string;items:NavItem[]};
 const groups:NavGroup[]=[
@@ -29,7 +30,7 @@ const groups:NavGroup[]=[
  {en:'SCHOOL OPERATIONS',mr:'शाळा कामकाज',items:[{id:'schoolCalendar',icon:'▣',en:'School Calendar',mr:'शाळा दिनदर्शिका'},{id:'dailyMeal',icon:'☑',en:'Daily Meal Entry',mr:'दैनिक आहार नोंद'},{id:'menuPlanner',icon:'◉',en:'Menu Planner',mr:'दिवसनिहाय मेनू'},{id:'workbookRegisters',icon:'▤',en:'Ration & Requirements',mr:'राशन व गरज'}]},
  {en:'FOOD & STOCK',mr:'आहार व साठा',items:[{id:'stockReceipt',icon:'↓',en:'Stock Receipt',mr:'साठा प्राप्ती'},{id:'stockRegister',icon:'⬡',en:'Stock Management',mr:'साठा व्यवस्थापन'},{id:'stockControls',icon:'✓',en:'Stock Controls',mr:'साठा नियंत्रण'}]},
  {en:'MASTERS & MANAGEMENT',mr:'मास्टर्स व व्यवस्थापन',items:[{id:'masterData',icon:'▧',en:'Master Data',mr:'मास्टर डेटा',adminOnly:true},{id:'monthlyVerification',icon:'◆',en:'Monthly Verification',mr:'मासिक पडताळणी'},{id:'adminDashboard',icon:'▥',en:'Administrative Dashboard',mr:'प्रशासकीय डॅशबोर्ड',management:true},{id:'reports',icon:'▤',en:'Registers & Reports',mr:'नोंदवही व अहवाल'},{id:'customReports',icon:'▧',en:'Custom Excel Reports',mr:'सानुकूल Excel अहवाल',management:true}]},
- {en:'SETTINGS',mr:'सेटिंग्ज',items:[{id:'schoolProfile',icon:'⚙',en:'School Profile',mr:'शाळा माहिती'},{id:'branding',icon:'◈',en:'Branding & Logos',mr:'ब्रँडिंग व लोगो',adminOnly:true}]}
+ {en:'SETTINGS',mr:'सेटिंग्ज',items:[{id:'schoolProfile',icon:'⚙',en:'School Profile',mr:'शाळा माहिती'},{id:'help',icon:'?',en:'Help & User Manual',mr:'मदत व वापरकर्ता मार्गदर्शिका'},{id:'branding',icon:'◈',en:'Branding & Logos',mr:'ब्रँडिंग व लोगो',adminOnly:true}]}
 ];
 export default function App(){
  const [lang,setLang]=useState<Lang>((localStorage.getItem('pmposhan.lang') as Lang)||'mr');const [me,setMe]=useState<MeResponse|null>(null);const [schools,setSchools]=useState<School[]>([]);const [schoolId,setSchoolId]=useState('');const [page,setPage]=useState<Page>('dashboard');const [apiError,setApiError]=useState('');const [navOpen,setNavOpen]=useState(false);const [brandTick,setBrandTick]=useState(0);
@@ -43,7 +44,7 @@ export default function App(){
     schools={schools}
     schoolId={schoolId}
     setSchoolId={setSchoolId}
-/>;else if(page==='branding')body=<BrandingSettings lang={lang}/>;else body=<Reports lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
+/>;else if(page==='branding')body=<BrandingSettings lang={lang}/>;else if(page==='help')body=<HelpManual lang={lang}/>;else body=<Reports lang={lang} schools={schools} schoolId={schoolId} setSchoolId={setSchoolId}/>;
  return <div className="app professional-ui exact-ui">
   <header className="gov-header exact-header">
    <button className="mobile-menu" onClick={()=>setNavOpen(v=>!v)}>☰</button>
@@ -57,7 +58,7 @@ export default function App(){
     <div className="sidebar-brand">{districtLogo?<img src={districtLogo}/>:<span>◉</span>}<div><b>PM POSHAN</b><small>School Meal Management</small></div></div>
     <div className="school-brand-card">{schoolLogo?<div className="school-logo-wrap"><img src={schoolLogo}/></div>:<div className="school-logo-wrap">🏫</div>}<div><strong>{activeSchool?(lang==='mr'?activeSchool.name_mr:activeSchool.name_en):(lang==='mr'?'शाळा':'School')}</strong><small>{activeSchool?.udise_code?`UDISE: ${activeSchool.udise_code}`:''}</small><small>{districtName}</small></div></div>
     <nav>{visibleGroups.map(g=><div className="nav-group" key={g.en||'main'}>{g.en&&<div className="nav-group-title">{lang==='mr'?g.mr:g.en}</div>}{g.items.map(i=><button key={i.id} className={page===i.id?'active':''} onClick={()=>go(i.id)}><span className="nav-icon">{i.icon}</span><span className="nav-copy"><b>{lang==='mr'?i.mr:i.en}</b>{lang==='mr'&&<small>{i.en}</small>}</span><strong className="chev">›</strong></button>)}</div>)}</nav>
-    <div className="sidebar-footer">Version 3.0 &nbsp;|&nbsp; Build 2026.09<br/><span className="online-dot"></span>{lang==='mr'?'ऑनलाइन':'Online'}</div>
+    <div className="sidebar-footer">PM POSHAN v1.0 &nbsp;|&nbsp; Build 2026.09<br/><span className="online-dot"></span>{lang==='mr'?'ऑनलाइन':'Online'}</div>
    </aside>
    <section className="main-stage">
     <div className="top-userbar">
