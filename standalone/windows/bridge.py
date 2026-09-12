@@ -9,6 +9,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import daily_routes
 import master_service
 import operations
 import runtime
@@ -267,7 +268,6 @@ def make_academic_year_current(year_id: str, user: dict[str, Any] = Depends(requ
         raise _service_error(exc) from exc
 
 
-# Master-data compatibility routes used by the existing React Master Data page.
 @app.get("/api/v1/master/districts")
 def master_districts(user: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
     return master_service.list_districts()
@@ -408,6 +408,9 @@ def master_save_recipe_standard(menu_id: str, body: dict[str, Any], user: dict[s
         return master_service.save_recipe_standard(menu_id, body, user["id"])
     except (ValueError, KeyError) as exc:
         raise _service_error(exc) from exc
+
+
+app.include_router(daily_routes.build_router(current_user, require_admin, _service_error))
 
 
 if __name__ == "__main__":
