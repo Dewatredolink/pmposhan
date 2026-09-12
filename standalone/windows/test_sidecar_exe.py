@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import gc
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import time
@@ -30,48 +32,75 @@ def wait_for_health(process: subprocess.Popen[bytes], timeout: float = 25.0) -> 
     raise RuntimeError(f"Sidecar health endpoint did not become ready: {last_error}")
 
 
+def cleanup_temp_dir(path: Path) -> None:
+    """Remove a Windows smoke-test directory after the sidecar releases SQLite.
+
+    Windows can briefly retain a file handle to pmposhan.db after the packaged
+    process exits. Retrying cleanup avoids turning a successful runtime test
+    into a false failure because of that short-lived OS/filesystem race.
+    """
+    gc.collect()
+    last_error: Exception | None = None
+    for _ in range(20):
+        try:
+            shutil.rmtree(path)
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError as exc:
+            last_error = exc
+            time.sleep(0.25)
+    # Cleanup is not part of the runtime contract. Leave the temporary folder
+    # for Windows to release later rather than failing an otherwise valid test.
+    print(f"WARNING: temporary smoke-test directory could not be removed: {path}: {last_error}")
+
+
 def main() -> None:
     if not EXE.exists():
         raise FileNotFoundError(f"Build the sidecar first: {EXE}")
 
-    with tempfile.TemporaryDirectory(prefix="pmposhan-sidecar-smoke-") as temp_dir:
+    temp_dir = Path(tempfile.mkdtemp(prefix="pmposhan-sidecar-smoke-"))
+    process: subprocess.Popen[bytes] | None = None
+    try:
         env = os.environ.copy()
-        env["PMPOSHAN_DATA_DIR"] = temp_dir
+        env["PMPOSHAN_DATA_DIR"] = str(temp_dir)
 
         process = subprocess.Popen(
             [str(EXE)],
             cwd=str(ROOT),
             env=env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
-        try:
-            health = wait_for_health(process)
-            db_path = Path(temp_dir) / "data" / "pmposhan.db"
-            if not health.get("ok") or health.get("mode") != "standalone":
-                raise AssertionError(f"Unexpected health response: {health}")
-            if not health.get("installation_id"):
-                raise AssertionError("Packaged runtime did not create an installation ID")
-            if not db_path.exists():
-                raise AssertionError(f"SQLite database was not created: {db_path}")
+        health = wait_for_health(process)
+        db_path = temp_dir / "data" / "pmposhan.db"
+        if not health.get("ok") or health.get("mode") != "standalone":
+            raise AssertionError(f"Unexpected health response: {health}")
+        if not health.get("installation_id"):
+            raise AssertionError("Packaged runtime did not create an installation ID")
+        if not db_path.exists():
+            raise AssertionError(f"SQLite database was not created: {db_path}")
 
-            print(json.dumps({
-                "ok": True,
-                "phase": "5D-A",
-                "pyinstaller_exe": True,
-                "loopback_health": True,
-                "bundled_schema": True,
-                "sqlite_created": True,
-                "installation_id": health["installation_id"],
-                "exe": str(EXE),
-            }, indent=2))
-        finally:
+        print(json.dumps({
+            "ok": True,
+            "phase": "5D-A",
+            "pyinstaller_exe": True,
+            "loopback_health": True,
+            "bundled_schema": True,
+            "sqlite_created": True,
+            "installation_id": health["installation_id"],
+            "exe": str(EXE),
+        }, indent=2))
+    finally:
+        if process is not None and process.poll() is None:
             process.terminate()
             try:
                 process.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait(timeout=5)
+        process = None
+        cleanup_temp_dir(temp_dir)
 
 
 if __name__ == "__main__":
