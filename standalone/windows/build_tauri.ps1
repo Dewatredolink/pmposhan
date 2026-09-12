@@ -19,6 +19,53 @@ function Resolve-CommandPath([string]$Name, [string[]]$Fallbacks = @()) {
     return $null
 }
 
+function Import-VsDevEnvironment {
+    if (Get-Command link.exe -ErrorAction SilentlyContinue) {
+        Write-Host "MSVC_LINK_READY=$((Get-Command link.exe).Source)"
+        return
+    }
+
+    $vswhereCandidates = @(
+        (Join-Path ${env:ProgramFiles(x86)} "Microsoft Visual Studio\Installer\vswhere.exe"),
+        (Join-Path $env:ProgramFiles "Microsoft Visual Studio\Installer\vswhere.exe")
+    ) | Where-Object { $_ -and (Test-Path $_) }
+
+    $vswhere = $vswhereCandidates | Select-Object -First 1
+    if (-not $vswhere) {
+        throw "MSVC linker (link.exe) not found. Install Visual Studio Build Tools with the Desktop development with C++ workload, then rerun this script. Suggested command: winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override `"--wait --passive --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended`""
+    }
+
+    $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    if (-not $installPath) {
+        throw "Visual Studio Build Tools are present, but the MSVC C++ toolchain is missing. Open Visual Studio Installer and add 'Desktop development with C++', including MSVC x64/x86 build tools and a Windows 10/11 SDK."
+    }
+
+    $vcvars = Join-Path $installPath "VC\Auxiliary\Build\vcvars64.bat"
+    if (-not (Test-Path $vcvars)) {
+        throw "MSVC environment script not found: $vcvars"
+    }
+
+    Write-Host "Loading MSVC environment from $vcvars"
+    $envLines = & cmd.exe /d /s /c "`"$vcvars`" >nul && set"
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to initialize the Visual C++ build environment using vcvars64.bat"
+    }
+    foreach ($line in $envLines) {
+        $idx = $line.IndexOf('=')
+        if ($idx -gt 0) {
+            $name = $line.Substring(0, $idx)
+            $value = $line.Substring($idx + 1)
+            [Environment]::SetEnvironmentVariable($name, $value, 'Process')
+        }
+    }
+
+    $link = Get-Command link.exe -ErrorAction SilentlyContinue
+    if (-not $link) {
+        throw "Visual C++ environment loaded, but link.exe is still unavailable. Verify MSVC x64/x86 build tools and Windows SDK are installed."
+    }
+    Write-Host "MSVC_LINK_READY=$($link.Source)"
+}
+
 $node = Resolve-CommandPath "node.exe"
 $npm = Resolve-CommandPath "npm.cmd" @("C:\Program Files\nodejs\npm.cmd")
 $cargoFallback = Join-Path $env:USERPROFILE ".cargo\bin\cargo.exe"
@@ -32,10 +79,6 @@ if (-not $cargo -or -not $rustc) {
     throw "Rust toolchain not found. Install Rustup first (for example: winget install --id Rustlang.Rustup -e), then open a new PowerShell window and rerun this script."
 }
 
-# Tauri CLI is launched by npm as a child process. On Windows, Rustup may be
-# installed in $HOME\.cargo\bin even when the current PowerShell PATH has not
-# refreshed yet. Explicitly prepend the resolved Rust directory so npm/Tauri
-# can run `cargo metadata`, rustc, and subsequent Cargo commands reliably.
 $cargoDir = Split-Path -Parent $cargo
 if (-not (($env:PATH -split ';') -contains $cargoDir)) {
     $env:PATH = "$cargoDir;$env:PATH"
@@ -51,6 +94,8 @@ Write-Host "RUST_PATH_READY=$cargoDir"
 if ($LASTEXITCODE -ne 0) { throw "cargo exists but could not run" }
 & $rustc --version
 if ($LASTEXITCODE -ne 0) { throw "rustc exists but could not run" }
+
+Import-VsDevEnvironment
 
 Push-Location $repoRoot
 try {
