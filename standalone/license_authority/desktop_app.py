@@ -12,6 +12,21 @@ import uvicorn
 
 APP_TITLE = "PM POSHAN License Authority"
 HOST = "127.0.0.1"
+_DEVNULL_HANDLES: list[object] = []
+
+
+def _ensure_windowed_stdio() -> None:
+    """Provide harmless streams when PyInstaller runs with console=False.
+
+    In a Windows GUI executable sys.stdout/sys.stderr can be None. Uvicorn's
+    default logging formatter probes stream.isatty(), which otherwise crashes
+    before the local authority server starts.
+    """
+    for name in ("stdout", "stderr"):
+        if getattr(sys, name, None) is None:
+            stream = open(os.devnull, "w", encoding="utf-8", buffering=1)
+            setattr(sys, name, stream)
+            _DEVNULL_HANDLES.append(stream)
 
 
 def _free_loopback_port() -> int:
@@ -47,16 +62,27 @@ def _self_test() -> int:
 
 
 def main() -> int:
+    _ensure_windowed_stdio()
+
     if "--self-test" in sys.argv:
         return _self_test()
 
     # The private signing key remains external to the application bundle.
     # dashboard.py reads it from PMPOSHAN_LICENSE_PRIVATE_KEY_FILE or the
-    # default C:\PMPoshan-License-Authority\PRIVATE_KEY_B64.txt path.
+    # default C:\\PMPoshan-License-Authority\\PRIVATE_KEY_B64.txt path.
     from dashboard import app
 
     port = _free_loopback_port()
-    config = uvicorn.Config(app, host=HOST, port=port, log_level="warning", access_log=False)
+    # Disable Uvicorn's console-oriented default logging configuration. The
+    # desktop bundle is a windowed PyInstaller executable with no console.
+    config = uvicorn.Config(
+        app,
+        host=HOST,
+        port=port,
+        log_level="warning",
+        access_log=False,
+        log_config=None,
+    )
     server = uvicorn.Server(config)
     server.install_signal_handlers = lambda: None
 
