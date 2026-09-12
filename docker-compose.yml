@@ -35,9 +35,16 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
     command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://db:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set KEYCLOAK_DB_PASSWORD in .env}
     volumes:
-      - pmposhan_keycloak_data:/opt/keycloak/data
-      - ./infra/keycloak/pmposhan-realm.json:/opt/keycloak/data/import/pmposhan-realm.json:ro
+      - ./backups/keycloak_export_20260912_130625:/opt/keycloak/data/import:ro
+    depends_on:
+      db:
+        condition: service_healthy
     ports:
       - "8080:8080"
 
