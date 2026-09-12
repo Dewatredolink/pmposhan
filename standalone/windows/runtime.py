@@ -7,6 +7,7 @@ import os
 import secrets
 import shutil
 import sqlite3
+import tempfile
 import uuid
 import zipfile
 from datetime import datetime, timezone
@@ -176,19 +177,33 @@ def store_license(package: dict[str, Any]) -> None:
 
 
 def _consistent_db_copy(target: Path) -> None:
-    with connect() as source, sqlite3.connect(target) as dest:
+    # Use explicit connection lifetimes so Windows releases the temporary
+    # snapshot file before we try to delete it. `sqlite3.Connection` used as a
+    # context manager commits/rolls back but does not close the handle.
+    source = connect()
+    dest = sqlite3.connect(target)
+    try:
         source.backup(dest)
+        dest.commit()
+    finally:
+        dest.close()
+        source.close()
 
 
 def create_backup() -> Path:
     init_db()
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     target = BACKUP_DIR / f"PMPoshan_Backup_{stamp}.zip"
-    snapshot = APP_DIR / "data" / "pmposhan.backup.tmp.db"
-    if snapshot.exists():
-        snapshot.unlink()
-    _consistent_db_copy(snapshot)
+
+    # Keep the temporary database outside the live database directory. This
+    # avoids WAL-related file locking on Windows and makes cleanup reliable.
+    fd, temp_name = tempfile.mkstemp(prefix="pmposhan-backup-", suffix=".db")
+    os.close(fd)
+    snapshot = Path(temp_name)
+    snapshot.unlink(missing_ok=True)
+
     try:
+        _consistent_db_copy(snapshot)
         with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.write(snapshot, arcname="data/pmposhan.db")
             for folder in ("documents", "photos", "reports"):
@@ -239,11 +254,14 @@ def restore_backup(backup_file: str | Path) -> None:
         with zf.open("data/pmposhan.db") as src, temp_db.open("wb") as dst:
             shutil.copyfileobj(src, dst)
 
-    with sqlite3.connect(temp_db) as test_conn:
+    test_conn = sqlite3.connect(temp_db)
+    try:
         result = test_conn.execute("PRAGMA integrity_check").fetchone()[0]
-        if result != "ok":
-            temp_db.unlink(missing_ok=True)
-            raise ValueError(f"Backup database integrity check failed: {result}")
+    finally:
+        test_conn.close()
+    if result != "ok":
+        temp_db.unlink(missing_ok=True)
+        raise ValueError(f"Backup database integrity check failed: {result}")
 
     safety = APP_DIR / "data" / "pmposhan.before_restore.db"
     safety.unlink(missing_ok=True)
