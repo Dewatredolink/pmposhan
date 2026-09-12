@@ -9,6 +9,8 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import admin_routes
+import admin_service
 import daily_routes
 import master_service
 import operations
@@ -122,6 +124,7 @@ def _service_error(exc: Exception) -> HTTPException:
 @app.on_event("startup")
 def startup() -> None:
     runtime.init_db()
+    admin_service.ensure_admin_schema()
 
 
 @app.get("/api/v1/health")
@@ -167,12 +170,17 @@ def logout(authorization: str | None = Header(default=None)) -> dict[str, bool]:
 
 @app.get("/api/v1/me")
 def me(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    school_access = admin_service.user_school_access(user)
     return {
         "sub": user["id"],
+        "username": user["username"],
         "preferred_username": user["username"],
         "name": user.get("display_name") or user["username"],
+        "email": None,
+        "roles": [user["role"]],
         "realm_roles": [user["role"]],
         "role": user["role"],
+        "school_access": school_access,
         "mode": "standalone",
     }
 
@@ -212,7 +220,7 @@ def create_backup(user: dict[str, Any] = Depends(require_admin)) -> dict[str, An
 
 @app.get("/api/v1/schools")
 def list_schools(user: dict[str, Any] = Depends(current_user)) -> list[dict[str, Any]]:
-    return operations.list_schools()
+    return admin_service.allowed_schools(user)
 
 
 @app.post("/api/v1/schools")
@@ -410,6 +418,7 @@ def master_save_recipe_standard(menu_id: str, body: dict[str, Any], user: dict[s
         raise _service_error(exc) from exc
 
 
+app.include_router(admin_routes.build_router(require_admin, _service_error))
 app.include_router(daily_routes.build_router(current_user, require_admin, _service_error))
 
 
