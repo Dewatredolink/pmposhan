@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 import admin_service
+import government_admin
 import runtime
 
 
@@ -62,6 +63,20 @@ def build_router(require_admin: Callable[..., dict[str, Any]], service_error: Ca
     def restore_standard_masters(user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
         try:
             return admin_service.restore_standard_masters(user["id"])
+        except (ValueError, KeyError) as exc:
+            raise service_error(exc) from exc
+
+    @router.get("/admin/government-standard")
+    def government_standard_status(user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        try:
+            return government_admin.standard_status()
+        except (ValueError, KeyError) as exc:
+            raise service_error(exc) from exc
+
+    @router.post("/admin/government-standard/import")
+    def import_government_standard(user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+        try:
+            return government_admin.import_with_backup(user["id"])
         except (ValueError, KeyError) as exc:
             raise service_error(exc) from exc
 
