@@ -1,0 +1,22 @@
+html,body,#root{min-width:0;max-width:100%;overflow-x:hidden}
+
+@media(max-width:850px){
+  .professional-ui{width:100%;max-width:100%;overflow-x:hidden}
+  .exact-header{position:relative!important;z-index:70!important}
+  .professional-shell{display:block!important;grid-template-columns:none!important;width:100%!important;max-width:100%!important;min-height:calc(100dvh - 82px)!important}
+  .professional-shell>aside{position:fixed!important;left:-100vw!important;top:82px!important;width:min(82vw,300px)!important;max-width:300px!important;height:calc(100dvh - 82px)!important;max-height:calc(100dvh - 82px)!important;overflow-y:auto!important;overflow-x:hidden!important;z-index:100!important;margin:0!important;display:block!important;transition:left .24s ease!important;box-shadow:8px 0 24px rgba(0,0,0,.24)!important}
+  .professional-shell>aside.open{left:0!important}
+  .mobile-menu{display:block!important;z-index:110!important}
+  .main-stage{position:relative!important;z-index:1!important;width:100%!important;max-width:100%!important;min-width:0!important;margin:0!important;overflow:visible!important}
+  .top-userbar{width:100%!important;max-width:100%!important;overflow:hidden!important}
+  .professional-ui .content{width:100%!important;max-width:100%!important;min-width:0!important;overflow-x:hidden!important}
+  .page-title,.panel,.card,.table-wrap{max-width:100%!important;min-width:0!important}
+  .school-context{min-width:0!important;max-width:60vw!important}
+  .school-select-wrap{min-width:0!important;max-width:58vw!important;width:58vw!important}
+}
+
+@media(max-width:560px){
+  .professional-shell>aside{width:min(86vw,310px)!important}
+  .top-userbar{padding:4px 8px!important}
+  .professional-ui .content{padding:10px 9px 8px!important}
+}
