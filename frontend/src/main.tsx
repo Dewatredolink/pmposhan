@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import './mobile-fixes.css';
+import AppErrorBoundary from './standalone/AppErrorBoundary';
 import {
   apiFetch,
   hasStandaloneSession,
@@ -20,7 +21,9 @@ async function renderApp() {
   await initAuth();
   root.render(
     <React.StrictMode>
-      <App />
+      <AppErrorBoundary>
+        <App />
+      </AppErrorBoundary>
     </React.StrictMode>
   );
 }
