@@ -5,14 +5,16 @@ import hashlib
 import json
 import os
 import secrets
+import shutil
 import sqlite3
 import uuid
 import zipfile
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+APP_VERSION = "1.0-standalone-dev"
+SCHEMA_VERSION = 1
 APP_DIR = Path(os.environ.get("PMPOSHAN_DATA_DIR", Path.home() / "PMPoshanStandalone"))
 DB_PATH = APP_DIR / "data" / "pmposhan.db"
 BACKUP_DIR = APP_DIR / "backups"
@@ -45,18 +47,24 @@ def init_db() -> None:
     schema = SCHEMA_PATH.read_text(encoding="utf-8")
     with connect() as conn:
         conn.executescript(schema)
-        row = conn.execute("SELECT installation_id FROM installation_state LIMIT 1").fetchone()
+        row = conn.execute("SELECT id FROM installation_state WHERE id=1").fetchone()
         if not row:
             conn.execute(
-                "INSERT INTO installation_state (installation_id, created_at) VALUES (?, ?)",
-                (str(uuid.uuid4()), utc_now()),
+                """
+                INSERT INTO installation_state
+                    (id, installation_id, created_at, app_version, schema_version)
+                VALUES (1, ?, ?, ?, ?)
+                """,
+                (str(uuid.uuid4()), utc_now(), APP_VERSION, SCHEMA_VERSION),
             )
 
 
 def get_installation_id() -> str:
     init_db()
     with connect() as conn:
-        row = conn.execute("SELECT installation_id FROM installation_state LIMIT 1").fetchone()
+        row = conn.execute("SELECT installation_id FROM installation_state WHERE id=1").fetchone()
+        if not row:
+            raise RuntimeError("Installation state not initialized")
         return str(row[0])
 
 
@@ -84,14 +92,18 @@ def verify_password(password: str, encoded: str) -> bool:
 
 def create_local_user(username: str, password: str, role: str, display_name: str = "") -> str:
     init_db()
+    if role not in {"SYSTEM_ADMIN", "HEADMASTER", "TEACHER"}:
+        raise ValueError("Invalid local role")
     user_id = str(uuid.uuid4())
+    now = utc_now()
     with connect() as conn:
         conn.execute(
             """
-            INSERT INTO local_users (id, username, password_hash, display_name, role, active, created_at, updated_at)
+            INSERT INTO local_users
+                (id, username, password_hash, display_name, role, active, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, 1, ?, ?)
             """,
-            (user_id, username.strip().lower(), _password_hash(password), display_name.strip(), role, utc_now(), utc_now()),
+            (user_id, username.strip().lower(), _password_hash(password), display_name.strip(), role, now, now),
         )
     return user_id
 
@@ -105,7 +117,8 @@ def authenticate(username: str, password: str) -> dict[str, Any] | None:
         ).fetchone()
         if not row or not row["active"] or not verify_password(password, row["password_hash"]):
             return None
-        conn.execute("UPDATE local_users SET last_login_at=?, updated_at=? WHERE id=?", (utc_now(), utc_now(), row["id"]))
+        now = utc_now()
+        conn.execute("UPDATE local_users SET last_login_at=?, updated_at=? WHERE id=?", (now, now, row["id"]))
         return {
             "id": row["id"],
             "username": row["username"],
@@ -116,22 +129,23 @@ def authenticate(username: str, password: str) -> dict[str, Any] | None:
 
 def license_status() -> dict[str, Any]:
     init_db()
+    installation_id = get_installation_id()
     with connect() as conn:
         row = conn.execute(
-            "SELECT license_json, signature, activated_at FROM license_state ORDER BY activated_at DESC LIMIT 1"
+            "SELECT license_json, signature_b64, activated_at FROM license_state WHERE id=1"
         ).fetchone()
-        if not row:
-            return {"active": False, "reason": "LICENSE_REQUIRED", "installation_id": get_installation_id()}
+        if not row or not row["license_json"]:
+            return {"active": False, "reason": "LICENSE_REQUIRED", "installation_id": installation_id}
         try:
             payload = json.loads(row["license_json"])
         except Exception:
-            return {"active": False, "reason": "LICENSE_CORRUPT", "installation_id": get_installation_id()}
-        if payload.get("installation_id") != get_installation_id():
-            return {"active": False, "reason": "LICENSE_INSTALLATION_MISMATCH", "installation_id": get_installation_id()}
+            return {"active": False, "reason": "LICENSE_CORRUPT", "installation_id": installation_id}
+        if payload.get("installation_id") != installation_id:
+            return {"active": False, "reason": "LICENSE_INSTALLATION_MISMATCH", "installation_id": installation_id}
         return {
             "active": True,
             "reason": "OK",
-            "installation_id": get_installation_id(),
+            "installation_id": installation_id,
             "license": payload,
             "activated_at": row["activated_at"],
         }
@@ -145,33 +159,68 @@ def store_license(package: dict[str, Any]) -> None:
         raise ValueError("Invalid license package")
     if payload.get("installation_id") != get_installation_id():
         raise ValueError("LICENSE_INSTALLATION_MISMATCH")
+    now = utc_now()
     with connect() as conn:
         conn.execute(
-            "INSERT INTO license_state (license_json, signature, activated_at) VALUES (?, ?, ?)",
-            (json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True), signature, utc_now()),
+            """
+            INSERT INTO license_state (id, license_json, signature_b64, activated_at, last_validated_at)
+            VALUES (1, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                license_json=excluded.license_json,
+                signature_b64=excluded.signature_b64,
+                activated_at=excluded.activated_at,
+                last_validated_at=excluded.last_validated_at
+            """,
+            (json.dumps(payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True), signature, now, now),
         )
+
+
+def _consistent_db_copy(target: Path) -> None:
+    with connect() as source, sqlite3.connect(target) as dest:
+        source.backup(dest)
 
 
 def create_backup() -> Path:
     init_db()
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     target = BACKUP_DIR / f"PMPoshan_Backup_{stamp}.zip"
-    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.write(DB_PATH, arcname="data/pmposhan.db")
-        for folder in ("documents", "photos", "reports"):
-            root = APP_DIR / folder
-            if root.exists():
-                for file in root.rglob("*"):
-                    if file.is_file():
-                        zf.write(file, arcname=str(file.relative_to(APP_DIR)))
-        zf.writestr(
-            "backup.json",
-            json.dumps({"created_at": utc_now(), "installation_id": get_installation_id()}, indent=2),
-        )
+    snapshot = APP_DIR / "data" / "pmposhan.backup.tmp.db"
+    if snapshot.exists():
+        snapshot.unlink()
+    _consistent_db_copy(snapshot)
+    try:
+        with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.write(snapshot, arcname="data/pmposhan.db")
+            for folder in ("documents", "photos", "reports"):
+                root = APP_DIR / folder
+                if root.exists():
+                    for file in root.rglob("*"):
+                        if file.is_file():
+                            zf.write(file, arcname=str(file.relative_to(APP_DIR)))
+            zf.writestr(
+                "backup.json",
+                json.dumps({"created_at": utc_now(), "installation_id": get_installation_id()}, indent=2),
+            )
+    finally:
+        snapshot.unlink(missing_ok=True)
+
+    digest = hashlib.sha256(target.read_bytes()).hexdigest()
     with connect() as conn:
         conn.execute(
-            "INSERT INTO backup_history (id, file_name, created_at, success) VALUES (?, ?, ?, 1)",
-            (str(uuid.uuid4()), target.name, utc_now()),
+            """
+            INSERT INTO backup_history
+                (id, created_at, file_name, file_path, sha256, size_bytes, status, notes)
+            VALUES (?, ?, ?, ?, ?, ?, 'VERIFIED', ?)
+            """,
+            (
+                str(uuid.uuid4()),
+                utc_now(),
+                target.name,
+                str(target),
+                digest,
+                target.stat().st_size,
+                "Automatic standalone backup",
+            ),
         )
     return target
 
@@ -186,13 +235,21 @@ def restore_backup(backup_file: str | Path) -> None:
         if "data/pmposhan.db" not in names:
             raise ValueError("Backup does not contain data/pmposhan.db")
         temp_db = APP_DIR / "data" / "pmposhan.restore.tmp.db"
+        temp_db.unlink(missing_ok=True)
         with zf.open("data/pmposhan.db") as src, temp_db.open("wb") as dst:
-            dst.write(src.read())
-        with sqlite3.connect(temp_db) as test_conn:
-            test_conn.execute("PRAGMA integrity_check").fetchone()
-        if DB_PATH.exists():
-            DB_PATH.replace(APP_DIR / "data" / "pmposhan.before_restore.db")
-        temp_db.replace(DB_PATH)
+            shutil.copyfileobj(src, dst)
+
+    with sqlite3.connect(temp_db) as test_conn:
+        result = test_conn.execute("PRAGMA integrity_check").fetchone()[0]
+        if result != "ok":
+            temp_db.unlink(missing_ok=True)
+            raise ValueError(f"Backup database integrity check failed: {result}")
+
+    safety = APP_DIR / "data" / "pmposhan.before_restore.db"
+    safety.unlink(missing_ok=True)
+    if DB_PATH.exists():
+        shutil.copy2(DB_PATH, safety)
+    temp_db.replace(DB_PATH)
 
 
 if __name__ == "__main__":
