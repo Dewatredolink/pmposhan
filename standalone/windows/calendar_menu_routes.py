@@ -11,7 +11,7 @@ def build_router(
     current_user: Callable[..., dict[str, Any]],
     service_error: Callable[[Exception], HTTPException],
 ) -> APIRouter:
-    router = APIRouter(prefix="/api/v1")
+    router = APIRouter()
 
     @router.get("/menu-plan")
     def get_menu_plan(
