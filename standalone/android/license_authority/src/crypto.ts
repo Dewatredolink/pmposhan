@@ -31,11 +31,40 @@ export function bytesToBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
+function normalizeBase64(value: string): string {
+  let text = String(value || '').trim();
+
+  // Accept the protected text file content as well as common copy/paste forms,
+  // while never logging or persisting the plaintext seed.
+  const assignment = text.match(/^(?:PRIVATE_KEY_B64|ED25519_PRIVATE_KEY|SEED_B64)\s*=\s*(.+)$/is);
+  if (assignment) text = assignment[1].trim();
+
+  if ((text.startsWith('"') && text.endsWith('"')) || (text.startsWith("'") && text.endsWith("'"))) {
+    text = text.slice(1, -1).trim();
+  }
+
+  // Clipboard apps can insert line wraps/spaces into Base64. They are not data.
+  text = text.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+  if (!text) throw new Error('PRIVATE_KEY_BASE64_INVALID');
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(text)) throw new Error('PRIVATE_KEY_BASE64_INVALID');
+
+  // Permit omitted Base64 padding, but reject impossible lengths.
+  const remainder = text.length % 4;
+  if (remainder === 1) throw new Error('PRIVATE_KEY_BASE64_INVALID');
+  if (remainder) text += '='.repeat(4 - remainder);
+  return text;
+}
+
 export function base64ToBytes(value: string): Uint8Array {
-  const binary = atob(value.trim());
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
-  return out;
+  try {
+    const binary = atob(normalizeBase64(value));
+    const out = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i += 1) out[i] = binary.charCodeAt(i);
+    return out;
+  } catch (error) {
+    if (error instanceof Error && error.message === 'PRIVATE_KEY_BASE64_INVALID') throw error;
+    throw new Error('PRIVATE_KEY_BASE64_INVALID');
+  }
 }
 
 function stable(value: unknown): unknown {
@@ -68,10 +97,16 @@ async function deriveAesKey(pin: string, salt: Uint8Array): Promise<CryptoKey> {
 
 export async function encryptAuthoritySeed(seedB64: string, pin: string): Promise<EncryptedAuthorityKey> {
   const seed = base64ToBytes(seedB64);
-  if (seed.length !== 32) throw new Error('PRIVATE_KEY_INVALID_LENGTH');
+  if (seed.length !== 32) {
+    seed.fill(0);
+    throw new Error('PRIVATE_KEY_INVALID_LENGTH');
+  }
   const pair = nacl.sign.keyPair.fromSeed(seed);
   const publicKeyB64 = bytesToBase64(pair.publicKey);
-  if (publicKeyB64 !== EXPECTED_PUBLIC_KEY_B64) throw new Error('PRIVATE_KEY_PUBLIC_KEY_MISMATCH');
+  if (publicKeyB64 !== EXPECTED_PUBLIC_KEY_B64) {
+    seed.fill(0);
+    throw new Error('PRIVATE_KEY_PUBLIC_KEY_MISMATCH');
+  }
 
   const salt = crypto.getRandomValues(new Uint8Array(16));
   const iv = crypto.getRandomValues(new Uint8Array(12));
