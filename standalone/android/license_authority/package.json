@@ -23,7 +23,6 @@
     "@capacitor/cli": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "@types/tweetnacl": "latest",
     "@vitejs/plugin-react": "latest",
     "typescript": "latest",
     "vite": "latest"
