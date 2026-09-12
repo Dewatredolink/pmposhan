@@ -5,6 +5,7 @@ from typing import Any, Callable
 from fastapi import APIRouter, Depends, HTTPException
 
 import daily_service
+import inventory_routes
 
 
 def build_router(
@@ -78,4 +79,5 @@ def build_router(
         except (ValueError, KeyError) as exc:
             raise service_error(exc) from exc
 
+    router.include_router(inventory_routes.build_router(current_user, service_error))
     return router
