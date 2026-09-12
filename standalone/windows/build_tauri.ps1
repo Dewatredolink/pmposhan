@@ -9,6 +9,8 @@ $tauriDir = Join-Path $frontend "src-tauri"
 $binDir = Join-Path $tauriDir "binaries"
 $sidecarSource = Join-Path $PSScriptRoot "dist\pmposhan-bridge.exe"
 $sidecarTarget = Join-Path $binDir "pmposhan-bridge-x86_64-pc-windows-msvc.exe"
+$iconSource = Join-Path $frontend "public\icons\icon-512.png"
+$iconTarget = Join-Path $tauriDir "icons\icon.ico"
 
 function Resolve-CommandPath([string]$Name, [string[]]$Fallbacks = @()) {
     $cmd = Get-Command $Name -ErrorAction SilentlyContinue
@@ -110,6 +112,19 @@ try {
     try {
         & $npm install
         if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
+
+        if (-not (Test-Path $iconSource)) {
+            throw "Tauri icon source not found: $iconSource"
+        }
+        if (-not (Test-Path $iconTarget)) {
+            Write-Host "Generating Tauri desktop icons from $iconSource"
+            & $npm run tauri -- icon ".\public\icons\icon-512.png"
+            if ($LASTEXITCODE -ne 0) { throw "Tauri icon generation failed" }
+        }
+        if (-not (Test-Path $iconTarget)) {
+            throw "Tauri icon generation completed but icon.ico is still missing: $iconTarget"
+        }
+        Write-Host "TAURI_ICON_READY=$iconTarget"
 
         & $npm run tauri build
         if ($LASTEXITCODE -ne 0) { throw "Tauri build failed" }
