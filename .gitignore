@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+backup_*
+backups/
+*.dump
+*.sql.gz
+*.license.json
+*PRIVATE_KEY*
+license_keys/

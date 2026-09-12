@@ -2,9 +2,9 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: pmposhan
-      POSTGRES_USER: pmposhan
-      POSTGRES_PASSWORD: pmposhan
+      POSTGRES_DB: ${POSTGRES_DB:-pmposhan}
+      POSTGRES_USER: ${POSTGRES_USER:-pmposhan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -24,8 +24,8 @@ services:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
     environment:
-      MINIO_ROOT_USER: pmposhan
-      MINIO_ROOT_PASSWORD: change-this-minio-password
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?Set MINIO_ROOT_USER in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
     volumes:
       - miniodata:/data
     ports:
@@ -35,10 +35,8 @@ services:
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
     command: start-dev --import-realm
-    environment:
-      KC_BOOTSTRAP_ADMIN_USERNAME: admin
-      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
     volumes:
+      - pmposhan_keycloak_data:/opt/keycloak/data
       - ./infra/keycloak/pmposhan-realm.json:/opt/keycloak/data/import/pmposhan-realm.json:ro
     ports:
       - "8080:8080"
@@ -46,11 +44,12 @@ services:
   backend:
     build: ./backend
     environment:
-      DATABASE_URL: postgresql+psycopg://pmposhan:pmposhan@db:5432/pmposhan
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-pmposhan}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pmposhan}
       KEYCLOAK_ISSUER: http://localhost:8080/realms/pmposhan
       KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/pmposhan/protocol/openid-connect/certs
       KEYCLOAK_WEB_CLIENT_ID: pmposhan-web
       AUTH_REQUIRED: "true"
+      LICENSE_PUBLIC_KEY_B64: ${LICENSE_PUBLIC_KEY_B64:-}
       CORS_ORIGINS: http://localhost:5173
     depends_on:
       db:
@@ -74,3 +73,5 @@ services:
 volumes:
   pgdata:
   miniodata:
+  pmposhan_keycloak_data:
+    external: true

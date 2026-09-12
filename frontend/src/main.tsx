@@ -2,10 +2,20 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import { initAuth } from './auth';
+import ActivationScreen, { fetchLicenseStatus } from './pages/ActivationScreen';
 
 async function bootstrap() {
   const root = ReactDOM.createRoot(document.getElementById('root')!);
   try {
+    const license = await fetchLicenseStatus();
+    if (!license.active) {
+      root.render(
+        <React.StrictMode>
+          <ActivationScreen status={license} onActivated={() => window.location.reload()} />
+        </React.StrictMode>
+      );
+      return;
+    }
     await initAuth();
     root.render(
       <React.StrictMode>

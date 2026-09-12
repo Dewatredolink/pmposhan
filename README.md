@@ -44,7 +44,6 @@ Open:
 - Keycloak: http://localhost:8080
 - MinIO console: http://localhost:9001
 
-Development Keycloak admin: `admin / admin`. Change all development credentials before any non-local deployment.
 
 Demo Keycloak user: `admin.demo / ChangeMe123!` (temporary password).
 
@@ -63,9 +62,6 @@ Demo Keycloak user: `admin.demo / ChangeMe123!` (temporary password).
 
 The application now requires Keycloak login. The bundled development realm contains these local test users:
 
-- Teacher: `teacher.demo` / `Teacher@123`
-- Headmaster: `headmaster.demo` / `Headmaster@123`
-- System Administrator: `admin.demo` / `Admin@123`
 - Keycloak master admin console: `admin` / `admin`
 
 The teacher and headmaster are mapped to the seeded `SAMPLE001` school. These are development-only credentials and must be replaced before any pilot or production deployment.
@@ -82,3 +78,5 @@ docker compose exec backend python -m app.seed
 Open `http://localhost:5173`. The app should redirect to Keycloak for login and return to the dashboard after authentication.
 
 Useful authenticated API check: open the app first; `/api/v1/health` remains public while application data endpoints require a bearer token.
+
+> Production note: no demo user credentials are shipped. Create named users in Keycloak and assign the required realm roles.
