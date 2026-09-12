@@ -10,16 +10,32 @@ $binDir = Join-Path $tauriDir "binaries"
 $sidecarSource = Join-Path $PSScriptRoot "dist\pmposhan-bridge.exe"
 $sidecarTarget = Join-Path $binDir "pmposhan-bridge-x86_64-pc-windows-msvc.exe"
 
-function Require-Command([string]$Name) {
-    if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
-        throw "Required command not found: $Name"
+function Resolve-CommandPath([string]$Name, [string[]]$Fallbacks = @()) {
+    $cmd = Get-Command $Name -ErrorAction SilentlyContinue
+    if ($cmd) { return $cmd.Source }
+    foreach ($candidate in $Fallbacks) {
+        if ($candidate -and (Test-Path $candidate)) { return (Resolve-Path $candidate).Path }
     }
+    return $null
 }
 
-Require-Command "node"
-Require-Command "npm"
-Require-Command "cargo"
-Require-Command "rustc"
+$node = Resolve-CommandPath "node.exe"
+$npm = Resolve-CommandPath "npm.cmd" @("C:\Program Files\nodejs\npm.cmd")
+$cargoFallback = Join-Path $env:USERPROFILE ".cargo\bin\cargo.exe"
+$rustcFallback = Join-Path $env:USERPROFILE ".cargo\bin\rustc.exe"
+$cargo = Resolve-CommandPath "cargo.exe" @($cargoFallback)
+$rustc = Resolve-CommandPath "rustc.exe" @($rustcFallback)
+
+if (-not $node) { throw "Required command not found: node.exe" }
+if (-not $npm) { throw "Required command not found: npm.cmd" }
+if (-not $cargo -or -not $rustc) {
+    throw "Rust toolchain not found. Install Rustup first (for example: winget install --id Rustlang.Rustup -e), then open a new PowerShell window and rerun this script."
+}
+
+Write-Host "NODE=$node"
+Write-Host "NPM=$npm"
+Write-Host "CARGO=$cargo"
+Write-Host "RUSTC=$rustc"
 
 Push-Location $repoRoot
 try {
@@ -32,10 +48,10 @@ try {
 
     Push-Location $frontend
     try {
-        & npm install
+        & $npm install
         if ($LASTEXITCODE -ne 0) { throw "npm install failed" }
 
-        & npm run tauri build
+        & $npm run tauri build
         if ($LASTEXITCODE -ne 0) { throw "Tauri build failed" }
     }
     finally {
