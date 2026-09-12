@@ -12,13 +12,9 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
-    ports:
-      - "5432:5432"
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
 
   minio:
     image: minio/minio:latest
@@ -28,9 +24,6 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
     volumes:
       - miniodata:/data
-    ports:
-      - "9000:9000"
-      - "9001:9001"
 
   keycloak:
     image: quay.io/keycloak/keycloak:26.0
@@ -41,9 +34,11 @@ services:
       KC_DB_USERNAME: keycloak
       KC_DB_PASSWORD: ${KEYCLOAK_DB_PASSWORD:?Set KEYCLOAK_DB_PASSWORD in .env}
 
-      KC_HOSTNAME: localhost
+      KC_HOSTNAME: https://localhost:8443/auth
+      KC_HTTP_RELATIVE_PATH: /auth
       KC_HTTP_ENABLED: "true"
-      KC_HOSTNAME_STRICT: "false"
+
+      KC_PROXY_HEADERS: xforwarded
 
       KC_HEALTH_ENABLED: "true"
       KC_METRICS_ENABLED: "true"
@@ -51,23 +46,21 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "8080:8080"
 
   backend:
     build: ./backend
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-pmposhan}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-pmposhan}
 
-      KEYCLOAK_ISSUER: http://localhost:8080/realms/pmposhan
-      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/pmposhan/protocol/openid-connect/certs
+      KEYCLOAK_ISSUER: https://localhost:8443/auth/realms/pmposhan
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/auth/realms/pmposhan/protocol/openid-connect/certs
       KEYCLOAK_WEB_CLIENT_ID: pmposhan-web
 
       AUTH_REQUIRED: "true"
 
       LICENSE_PUBLIC_KEY_B64: ${LICENSE_PUBLIC_KEY_B64:-}
 
-      CORS_ORIGINS: http://localhost:5173
+      CORS_ORIGINS: https://localhost:8443
 
     depends_on:
       db:
@@ -75,14 +68,11 @@ services:
       keycloak:
         condition: service_started
 
-    ports:
-      - "8000:8000"
-
   frontend:
     build: ./frontend
     environment:
-      VITE_API_BASE_URL: http://localhost:8000/api/v1
-      VITE_KEYCLOAK_URL: http://localhost:8080
+      VITE_API_BASE_URL: https://localhost:8443/api/v1
+      VITE_KEYCLOAK_URL: https://localhost:8443/auth
       VITE_KEYCLOAK_REALM: pmposhan
       VITE_KEYCLOAK_CLIENT_ID: pmposhan-web
 
@@ -90,11 +80,26 @@ services:
       - backend
       - keycloak
 
+  nginx:
+    image: nginx:1.27-alpine
+
+    depends_on:
+      - frontend
+      - backend
+      - keycloak
+
+    volumes:
+      - ./infra/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./infra/nginx/certs:/etc/nginx/certs:ro
+
     ports:
-      - "5173:5173"
+      - "8088:80"
+      - "8443:443"
 
 volumes:
   pgdata:
   miniodata:
+
+  # Kept only as an emergency rollback source from the former H2 setup.
   pmposhan_keycloak_data:
     external: true
