@@ -4,6 +4,7 @@ from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, HTTPException
 
+import calendar_menu_routes
 import daily_service
 import inventory_routes
 
@@ -80,4 +81,5 @@ def build_router(
             raise service_error(exc) from exc
 
     router.include_router(inventory_routes.build_router(current_user, service_error))
+    router.include_router(calendar_menu_routes.build_router(current_user, service_error))
     return router
