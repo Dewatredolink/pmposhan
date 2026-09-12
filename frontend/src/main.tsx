@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import { hasStandaloneSession, initAuth, isStandaloneMode } from './auth';
+import { hasStandaloneSession, initAuth, isAndroidMode, isStandaloneMode } from './auth';
 import ActivationScreen, { fetchLicenseStatus } from './pages/ActivationScreen';
 import StandaloneLogin from './standalone/StandaloneLogin';
 import StandaloneSetup, { fetchStandaloneSetupStatus } from './standalone/StandaloneSetup';
@@ -50,9 +50,11 @@ async function bootstrap() {
     root.render(
       <div style={{padding: 24, fontFamily: 'system-ui'}}>
         <h2>PM POSHAN startup failed</h2>
-        <p>{isStandaloneMode()
-          ? 'Please confirm the PM POSHAN local service is running on this computer and reload the app.'
-          : 'Please confirm Keycloak and the PM POSHAN server are running and reload the page.'}</p>
+        <p>{isAndroidMode()
+          ? 'The Android local database/runtime could not start. Close and reopen the app; if the problem continues, check the Android build log.'
+          : isStandaloneMode()
+            ? 'Please confirm the PM POSHAN local service is running on this computer and reload the app.'
+            : 'Please confirm Keycloak and the PM POSHAN server are running and reload the page.'}</p>
       </div>
     );
   }
@@ -60,7 +62,7 @@ async function bootstrap() {
 
 bootstrap();
 
-if ('serviceWorker' in navigator) {
+if (!isAndroidMode() && 'serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/sw.js').catch(error => {
       console.warn('PM POSHAN service worker registration failed', error);
