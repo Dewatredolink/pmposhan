@@ -29,6 +29,11 @@ export async function publicApiFetch(path: string, init: RequestInit = {}) {
     const { tryAndroidMasterApiFetch } = await import('./mobile/androidMasterRuntime');
     const masterResponse = await tryAndroidMasterApiFetch(path, init);
     if (masterResponse) return masterResponse;
+
+    const { tryAndroidOperationsApiFetch } = await import('./mobile/androidOperationsRuntime');
+    const operationsResponse = await tryAndroidOperationsApiFetch(path, init);
+    if (operationsResponse) return operationsResponse;
+
     const { androidApiFetch } = await import('./mobile/androidRuntime');
     return androidApiFetch(path, init);
   }
