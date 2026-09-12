@@ -38,7 +38,9 @@ exe = EXE(
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=True,
+    # Release sidecar runs silently behind the Tauri UI. The bridge remains
+    # observable through loopback health/status APIs and explicit smoke tests.
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
