@@ -8,6 +8,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import operations
 import runtime
 
 app = FastAPI(title="PM POSHAN Standalone Bridge", version="1.0")
@@ -48,6 +49,44 @@ class LicensePackage(BaseModel):
     signature: str
 
 
+class SchoolCreateRequest(BaseModel):
+    code: str
+    udise_code: str
+    cluster_id: str
+    name_en: str
+    name_mr: str
+    village: str | None = None
+    class_1_5_strength: int = 0
+    class_6_8_strength: int = 0
+    active: bool = True
+
+
+class SchoolUpdateRequest(BaseModel):
+    code: str | None = None
+    udise_code: str | None = None
+    cluster_id: str | None = None
+    name_en: str | None = None
+    name_mr: str | None = None
+    village: str | None = None
+    class_1_5_strength: int | None = None
+    class_6_8_strength: int | None = None
+    active: bool | None = None
+
+
+class AcademicYearCreateRequest(BaseModel):
+    code: str
+    start_date: str
+    end_date: str
+    is_current: bool = False
+
+
+class AcademicYearUpdateRequest(BaseModel):
+    code: str | None = None
+    start_date: str | None = None
+    end_date: str | None = None
+    is_current: bool | None = None
+
+
 def _bearer_token(authorization: str | None) -> str:
     if not authorization or not authorization.lower().startswith("bearer "):
         raise HTTPException(status_code=401, detail="AUTH_REQUIRED")
@@ -69,6 +108,12 @@ def require_admin(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any
     if user.get("role") != "SYSTEM_ADMIN":
         raise HTTPException(status_code=403, detail="SYSTEM_ADMIN_REQUIRED")
     return user
+
+
+def _service_error(exc: Exception) -> HTTPException:
+    if isinstance(exc, KeyError):
+        return HTTPException(status_code=404, detail=str(exc.args[0] if exc.args else exc))
+    return HTTPException(status_code=400, detail=str(exc))
 
 
 @app.on_event("startup")
@@ -160,6 +205,64 @@ def installation(user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any
 def create_backup(user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
     path = runtime.create_backup()
     return {"ok": True, "file_name": path.name, "path": str(path)}
+
+
+@app.get("/api/v1/schools")
+def list_schools(user: dict[str, Any] = Depends(current_user)) -> list[dict[str, Any]]:
+    return operations.list_schools()
+
+
+@app.post("/api/v1/schools")
+def create_school(body: SchoolCreateRequest, user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return operations.create_school(body.model_dump(), user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.get("/api/v1/schools/{school_id}")
+def get_school(school_id: str, user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
+    school = operations.get_school(school_id)
+    if not school:
+        raise HTTPException(status_code=404, detail="SCHOOL_NOT_FOUND")
+    return school
+
+
+@app.put("/api/v1/schools/{school_id}")
+def update_school(school_id: str, body: SchoolUpdateRequest, user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return operations.update_school(school_id, body.model_dump(exclude_unset=True), user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.get("/api/v1/academic-years")
+def list_academic_years(user: dict[str, Any] = Depends(current_user)) -> list[dict[str, Any]]:
+    return operations.list_academic_years()
+
+
+@app.post("/api/v1/academic-years")
+def create_academic_year(body: AcademicYearCreateRequest, user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return operations.create_academic_year(body.model_dump(), user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.put("/api/v1/academic-years/{year_id}")
+def update_academic_year(year_id: str, body: AcademicYearUpdateRequest, user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return operations.update_academic_year(year_id, body.model_dump(exclude_unset=True), user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.post("/api/v1/academic-years/{year_id}/make-current")
+def make_academic_year_current(year_id: str, user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return operations.make_academic_year_current(year_id, user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
 
 
 if __name__ == "__main__":
