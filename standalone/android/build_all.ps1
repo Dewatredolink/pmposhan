@@ -25,6 +25,15 @@ function Assert-WebBuild([string]$AppDir) {
     }
 }
 
+function Get-JavaMajorVersion {
+    $javaExe = Join-Path $env:JAVA_HOME 'bin\java.exe'
+    $versionText = (& $javaExe -version 2>&1 | Select-Object -First 1) -join ''
+    if ($versionText -notmatch 'version\s+"(?<v>\d+)(?:\.(\d+))?') {
+        throw "Unable to determine Java version from: $versionText"
+    }
+    return [int]$Matches['v']
+}
+
 Write-Host '=== PM POSHAN Android preflight ==='
 Require-Command 'node.exe'
 Require-Command 'npm.cmd'
@@ -36,8 +45,14 @@ if (-not $env:ANDROID_HOME) { throw 'ANDROID_HOME is not configured' }
 if (-not (Test-Path (Join-Path $env:JAVA_HOME 'bin\java.exe'))) { throw "JAVA_HOME is invalid: $env:JAVA_HOME" }
 if (-not (Test-Path $env:ANDROID_HOME)) { throw "ANDROID_HOME is invalid: $env:ANDROID_HOME" }
 
+$javaMajor = Get-JavaMajorVersion
+if ($javaMajor -lt 17 -or $javaMajor -gt 24) {
+    throw "Unsupported Java $javaMajor for the current Android/Gradle toolchain. Use JDK 21 (recommended), then set JAVA_HOME to that JDK before building."
+}
+
 Write-Host "Repo = $RepoRoot"
 Write-Host "JAVA_HOME = $env:JAVA_HOME"
+Write-Host "JAVA_MAJOR = $javaMajor"
 Write-Host "ANDROID_HOME = $env:ANDROID_HOME"
 
 Write-Host "`n=== Preparing PM POSHAN Android app ==="
