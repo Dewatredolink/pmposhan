@@ -8,6 +8,7 @@ import calendar_menu_routes
 import daily_service
 import inventory_routes
 import monthly_routes
+import school_profile_routes
 
 
 def build_router(
@@ -84,4 +85,5 @@ def build_router(
     router.include_router(inventory_routes.build_router(current_user, service_error))
     router.include_router(calendar_menu_routes.build_router(current_user, service_error))
     router.include_router(monthly_routes.build_router(current_user, service_error))
+    router.include_router(school_profile_routes.build_router(current_user, service_error))
     return router
