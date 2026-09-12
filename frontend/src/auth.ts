@@ -2,6 +2,7 @@ import Keycloak from 'keycloak-js';
 
 const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
 const standaloneMode = String(import.meta.env.VITE_STANDALONE_MODE || '').toLowerCase() === 'true';
+const androidMode = String(import.meta.env.VITE_ANDROID_MODE || '').toLowerCase() === 'true';
 const standaloneTokenKey = 'pmposhan.standalone.token';
 const standaloneUserKey = 'pmposhan.standalone.user';
 
@@ -15,12 +16,24 @@ export function isStandaloneMode(): boolean {
   return standaloneMode;
 }
 
+export function isAndroidMode(): boolean {
+  return androidMode;
+}
+
 export function hasStandaloneSession(): boolean {
   return !!sessionStorage.getItem(standaloneTokenKey);
 }
 
+export async function publicApiFetch(path: string, init: RequestInit = {}) {
+  if (androidMode) {
+    const { androidApiFetch } = await import('./mobile/androidRuntime');
+    return androidApiFetch(path, init);
+  }
+  return fetch(`${apiBase}${path}`, init);
+}
+
 export async function standaloneLogin(username: string, password: string) {
-  const r = await fetch(`${apiBase}/auth/login`, {
+  const r = await publicApiFetch('/auth/login', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({username, password}),
@@ -35,7 +48,7 @@ export async function standaloneLogin(username: string, password: string) {
 export async function standaloneLogout() {
   const token = sessionStorage.getItem(standaloneTokenKey);
   if (token) {
-    await fetch(`${apiBase}/auth/logout`, {
+    await publicApiFetch('/auth/logout', {
       method: 'POST',
       headers: {'Authorization': `Bearer ${token}`},
     }).catch(() => undefined);
@@ -72,7 +85,7 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
   if (!headers.has('Content-Type') && init.body && !(init.body instanceof FormData)) {
     headers.set('Content-Type', 'application/json');
   }
-  return fetch(`${apiBase}${path}`, {...init, headers});
+  return publicApiFetch(path, {...init, headers});
 }
 
 export function realmRoles(): string[] {
