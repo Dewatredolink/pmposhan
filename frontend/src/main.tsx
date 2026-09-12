@@ -1,13 +1,45 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import { hasStandaloneSession, initAuth, isAndroidMode, isStandaloneMode } from './auth';
+import {
+  apiFetch,
+  hasStandaloneSession,
+  initAuth,
+  isAndroidMode,
+  isStandaloneMode,
+  standaloneLogout,
+} from './auth';
 import ActivationScreen, { fetchLicenseStatus } from './pages/ActivationScreen';
 import StandaloneLogin from './standalone/StandaloneLogin';
 import StandaloneSetup, { fetchStandaloneSetupStatus } from './standalone/StandaloneSetup';
 
+const root = ReactDOM.createRoot(document.getElementById('root')!);
+
+async function renderApp() {
+  await initAuth();
+  root.render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>
+  );
+}
+
+function renderStandaloneLogin() {
+  root.render(
+    <React.StrictMode>
+      <StandaloneLogin
+        onLoggedIn={() => {
+          // Android keeps its local bearer session in the in-process runtime.
+          // A full WebView reload here would recreate that runtime and discard
+          // the freshly issued token before /me and /schools are requested.
+          void renderApp();
+        }}
+      />
+    </React.StrictMode>
+  );
+}
+
 async function bootstrap() {
-  const root = ReactDOM.createRoot(document.getElementById('root')!);
   try {
     const license = await fetchLicenseStatus();
     if (!license.active) {
@@ -29,22 +61,27 @@ async function bootstrap() {
         );
         return;
       }
+
+      // An Android WebView/page reload can leave a token in sessionStorage while
+      // the in-memory local runtime session has been recreated. Validate any
+      // existing token before showing the application. If it is stale, clear it
+      // and ask the user to log in again instead of displaying AUTH_REQUIRED.
+      if (hasStandaloneSession() && isAndroidMode()) {
+        const probe = await apiFetch('/me');
+        if (!probe.ok) {
+          await standaloneLogout();
+          renderStandaloneLogin();
+          return;
+        }
+      }
+
       if (!hasStandaloneSession()) {
-        root.render(
-          <React.StrictMode>
-            <StandaloneLogin onLoggedIn={() => window.location.reload()} />
-          </React.StrictMode>
-        );
+        renderStandaloneLogin();
         return;
       }
     }
 
-    await initAuth();
-    root.render(
-      <React.StrictMode>
-        <App />
-      </React.StrictMode>
-    );
+    await renderApp();
   } catch (error) {
     console.error(error);
     root.render(
