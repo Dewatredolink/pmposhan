@@ -31,7 +31,6 @@
     "@capacitor/cli": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
-    "@types/tweetnacl": "latest",
     "@tauri-apps/cli": "^2.8.4"
   }
 }
