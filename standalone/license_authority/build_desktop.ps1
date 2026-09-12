@@ -7,7 +7,7 @@ $authorityDir = $PSScriptRoot
 $repoRoot = (Resolve-Path (Join-Path $authorityDir "..\..")).Path
 
 if (-not [System.IO.Path]::IsPathRooted($Python)) {
-    $Python = Join-Path $repoRoot $Python.TrimStart('.','\')
+    $Python = Join-Path $repoRoot $Python
 }
 if (-not (Test-Path $Python)) {
     throw "Standalone Python environment not found: $Python"
