@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import { publicApiFetch } from '../auth';
 
 export type LicenseStatus = {
   active: boolean;
@@ -8,10 +9,8 @@ export type LicenseStatus = {
   license?: Record<string, unknown> | null;
 };
 
-const apiBase = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000/api/v1';
-
 export async function fetchLicenseStatus(): Promise<LicenseStatus> {
-  const r = await fetch(`${apiBase}/license/status`);
+  const r = await publicApiFetch('/license/status');
   if (!r.ok) throw new Error(`License status HTTP ${r.status}`);
   return r.json();
 }
@@ -29,6 +28,7 @@ export default function ActivationScreen({
 
   const reasonText = useMemo(() => {
     const map: Record<string, string> = {
+      LICENSE_REQUIRED: 'This installation has not been activated.',
       LICENSE_PUBLIC_KEY_NOT_CONFIGURED: 'License public key is not configured on this server.',
       NOT_ACTIVATED: 'This installation has not been activated.',
       LICENSE_EXPIRED: 'The installed license has expired.',
@@ -45,7 +45,7 @@ export default function ActivationScreen({
     try {
       const obj = JSON.parse(packageText);
       if (!obj.license || !obj.signature) throw new Error('Package must contain "license" and "signature".');
-      const r = await fetch(`${apiBase}/license/activate`, {
+      const r = await publicApiFetch('/license/activate', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify(obj),
