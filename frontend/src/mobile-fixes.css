@@ -1,22 +1,110 @@
-html,body,#root{min-width:0;max-width:100%;overflow-x:hidden}
+html,body,#root{min-width:0;max-width:100%;overflow-x:hidden;-webkit-text-size-adjust:100%;text-size-adjust:100%}
 
-@media(max-width:850px){
+@media(max-width:900px){
+  body{width:100%;max-width:100%;overflow-x:hidden}
   .professional-ui{width:100%;max-width:100%;overflow-x:hidden}
-  .exact-header{position:relative!important;z-index:70!important}
+
+  .exact-header{
+    position:relative!important;
+    z-index:70!important;
+    height:82px!important;
+    min-height:82px!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:center!important;
+    grid-template-columns:none!important;
+    gap:0!important;
+    padding:7px 12px 7px 64px!important;
+    overflow:hidden!important;
+  }
+  .maha-lockup,.district-lockup{display:none!important}
+  .pm-center{width:100%!important;max-width:100%!important;min-width:0!important;overflow:hidden!important;padding-right:8px!important}
+  .pm-center>b{font-size:25px!important;line-height:1!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;max-width:100%!important}
+  .pm-center>strong{font-size:12px!important;line-height:1.18!important;white-space:normal!important;text-align:center!important;max-width:100%!important}
+  .pm-center>small,.pm-center>em{display:none!important}
+  .mobile-menu{display:block!important;position:absolute!important;left:12px!important;top:17px!important;width:42px!important;height:42px!important;border:1px solid #bcd2e1!important;border-radius:8px!important;background:#fff!important;z-index:110!important;font-size:22px!important;line-height:1!important}
+
   .professional-shell{display:block!important;grid-template-columns:none!important;width:100%!important;max-width:100%!important;min-height:calc(100dvh - 82px)!important}
-  .professional-shell>aside{position:fixed!important;left:-100vw!important;top:82px!important;width:min(82vw,300px)!important;max-width:300px!important;height:calc(100dvh - 82px)!important;max-height:calc(100dvh - 82px)!important;overflow-y:auto!important;overflow-x:hidden!important;z-index:100!important;margin:0!important;display:block!important;transition:left .24s ease!important;box-shadow:8px 0 24px rgba(0,0,0,.24)!important}
+  .professional-shell>aside{
+    position:fixed!important;
+    left:-100vw!important;
+    top:82px!important;
+    width:min(84vw,300px)!important;
+    max-width:300px!important;
+    height:calc(100dvh - 82px)!important;
+    max-height:calc(100dvh - 82px)!important;
+    overflow-y:auto!important;
+    overflow-x:hidden!important;
+    z-index:100!important;
+    margin:0!important;
+    display:block!important;
+    transition:left .24s ease!important;
+    box-shadow:8px 0 24px rgba(0,0,0,.24)!important;
+  }
   .professional-shell>aside.open{left:0!important}
-  .mobile-menu{display:block!important;z-index:110!important}
-  .main-stage{position:relative!important;z-index:1!important;width:100%!important;max-width:100%!important;min-width:0!important;margin:0!important;overflow:visible!important}
-  .top-userbar{width:100%!important;max-width:100%!important;overflow:hidden!important}
-  .professional-ui .content{width:100%!important;max-width:100%!important;min-width:0!important;overflow-x:hidden!important}
-  .page-title,.panel,.card,.table-wrap{max-width:100%!important;min-width:0!important}
-  .school-context{min-width:0!important;max-width:60vw!important}
-  .school-select-wrap{min-width:0!important;max-width:58vw!important;width:58vw!important}
+
+  .main-stage{position:relative!important;z-index:1!important;width:100%!important;max-width:100%!important;min-width:0!important;margin:0!important;overflow:hidden!important;min-height:calc(100dvh - 82px)!important}
+  .top-userbar{width:100%!important;max-width:100%!important;height:auto!important;min-height:52px!important;overflow:hidden!important;padding:6px 8px!important;gap:6px!important}
+  .school-context{min-width:0!important;max-width:100%!important;width:100%!important;overflow:hidden!important}
+  .school-context>.context-sep,.school-context>b{display:none!important}
+  .school-select-wrap{min-width:0!important;max-width:100%!important;width:100%!important;height:38px!important}
+  .school-select-wrap select{min-width:0!important;max-width:100%!important;width:100%!important;font-size:13px!important}
+  .top-actions-right{display:none!important}
+
+  .professional-ui .content{width:100%!important;max-width:100%!important;min-width:0!important;overflow-x:hidden!important;padding:10px 9px 8px!important}
+  .page,.page-title,.panel,.card,.table-wrap,.form-grid,.metric-line,.action-row{max-width:100%!important;min-width:0!important}
+  .page{width:100%!important;padding:10px 9px!important;overflow-x:hidden!important}
+  .page-title{flex-direction:column!important}
+
+  .welcome-grid{display:grid!important;grid-template-columns:1fr!important;gap:10px!important;width:100%!important;max-width:100%!important}
+  .welcome-card{width:100%!important;max-width:100%!important;min-width:0!important;min-height:0!important;grid-template-columns:96px minmax(0,1fr)!important}
+  .school-photo{min-height:112px!important;height:112px!important}
+  .school-photo-fallback{font-size:46px!important}
+  .welcome-copy{padding:12px 12px!important;min-width:0!important}
+  .welcome-copy h2{font-size:17px!important;line-height:1.2!important}
+  .welcome-copy h3{font-size:14px!important;line-height:1.25!important;overflow-wrap:anywhere!important}
+  .quote{display:none!important}
+  .today-card{width:100%!important;max-width:100%!important;min-height:0!important;padding:13px 14px!important}
+  .today-card>strong{font-size:14px!important}
+  .today-card button{width:100%!important}
+
+  .dashboard-kpis{display:grid!important;grid-template-columns:1fr 1fr!important;gap:9px!important;width:100%!important;max-width:100%!important}
+  .dashboard-kpis article{min-width:0!important;width:100%!important;min-height:92px!important;padding:10px!important;gap:9px!important;overflow:hidden!important}
+  .dashboard-kpis article>div:last-child{min-width:0!important}
+  .dashboard-kpis article span{font-size:11px!important;line-height:1.2!important}
+  .dashboard-kpis article strong{font-size:23px!important;line-height:1.05!important;overflow-wrap:anywhere!important}
+  .dashboard-kpis article .kpi-menu{font-size:14px!important;line-height:1.15!important}
+  .kpi-icon{width:44px!important;height:44px!important;font-size:22px!important;flex:0 0 44px!important}
+
+  .dashboard-main-grid,.dashboard-bottom-grid,.dashboard-banners{display:grid!important;grid-template-columns:1fr!important;gap:10px!important;width:100%!important;max-width:100%!important}
+  .dashboard-main-grid>.panel,.dashboard-bottom-grid>.panel{min-width:0!important;width:100%!important;max-width:100%!important;min-height:0!important}
+  .panel-title{align-items:flex-start!important;flex-wrap:wrap!important}
+  .panel-title h3{font-size:16px!important;line-height:1.2!important}
+  .legend{flex-wrap:wrap!important;gap:8px!important}
+  .bar-chart{width:100%!important;max-width:100%!important;overflow-x:auto!important;overflow-y:hidden!important;-webkit-overflow-scrolling:touch}
+  .bars{min-width:520px!important;gap:3px!important}
+  .quick-grid{grid-template-columns:1fr 1fr!important}
+  .quick-grid button{min-width:0!important}
+  .dashboard-banners{margin-top:10px!important}
+
+  .form-grid,.form-grid.compact,.master-form,.month-controls,.brand-form-grid,.logo-upload-grid,.logo-upload-grid.three{grid-template-columns:1fr!important}
+  .form-grid .span-2{grid-column:span 1!important}
+  .table-wrap{width:100%!important;max-width:100%!important;overflow-x:auto!important;-webkit-overflow-scrolling:touch}
+  table{max-width:none!important}
+  .status-grid,.admin-status-grid,.admin-cards,.cards,.stock-cards,.info-grid{grid-template-columns:1fr!important}
+  .action-row{justify-content:stretch!important}
+  .action-row button{flex:1 1 100%!important}
+  .app-footer{height:auto!important;min-height:0!important;gap:5px!important;flex-direction:column!important;padding:8px!important;text-align:center!important}
 }
 
-@media(max-width:560px){
-  .professional-shell>aside{width:min(86vw,310px)!important}
-  .top-userbar{padding:4px 8px!important}
-  .professional-ui .content{padding:10px 9px 8px!important}
+@media(max-width:600px){
+  .exact-header{padding-left:60px!important}
+  .pm-center>b{font-size:22px!important}
+  .pm-center>strong{font-size:11px!important}
+  .professional-shell>aside{width:min(88vw,300px)!important}
+  .dashboard-kpis{grid-template-columns:1fr!important}
+  .welcome-card{grid-template-columns:86px minmax(0,1fr)!important}
+  .school-photo{height:104px!important;min-height:104px!important}
+  .quick-grid{grid-template-columns:1fr 1fr!important}
+  .professional-ui .content{padding:8px 7px!important}
 }
