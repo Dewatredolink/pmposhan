@@ -82,6 +82,17 @@ CREATE TABLE IF NOT EXISTS schools (
   updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS academic_years (
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  start_date TEXT NOT NULL,
+  end_date TEXT NOT NULL,
+  is_current INTEGER NOT NULL DEFAULT 0 CHECK (is_current IN (0,1)),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CHECK (start_date <= end_date)
+);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   id TEXT PRIMARY KEY,
   occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -107,4 +118,6 @@ CREATE INDEX IF NOT EXISTS ix_blocks_district_id ON blocks(district_id);
 CREATE INDEX IF NOT EXISTS ix_clusters_block_id ON clusters(block_id);
 CREATE INDEX IF NOT EXISTS ix_schools_cluster_id ON schools(cluster_id);
 CREATE INDEX IF NOT EXISTS ix_schools_udise ON schools(udise_code);
+CREATE INDEX IF NOT EXISTS ix_academic_years_dates ON academic_years(start_date, end_date);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_academic_year_current ON academic_years(is_current) WHERE is_current = 1;
 CREATE INDEX IF NOT EXISTS ix_audit_occurred_at ON audit_log(occurred_at);
