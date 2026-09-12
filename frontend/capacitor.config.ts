@@ -4,7 +4,6 @@ const config: CapacitorConfig = {
   appId: 'com.dewatredolink.pmposhan',
   appName: 'PM POSHAN',
   webDir: 'dist',
-  bundledWebRuntime: false,
   android: {
     allowMixedContent: false,
   },
