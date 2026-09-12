@@ -1,0 +1,51 @@
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+# The public verification key is intentionally distributable. The private
+# signing key must never be packaged with the application.
+PUBLIC_LICENSE_KEY_B64 = "3vsN+dDnufUGNaUnev+i4WMYqRU5OocDl2jXIUWvoFA="
+
+
+def _default_data_dir() -> Path:
+    program_data = os.environ.get("PROGRAMDATA")
+    if program_data:
+        return Path(program_data) / "PMPoshan"
+    return Path.home() / "PMPoshanStandalone"
+
+
+def _prepare_environment() -> None:
+    os.environ.setdefault("PMPOSHAN_DATA_DIR", str(_default_data_dir()))
+    os.environ.setdefault("LICENSE_PUBLIC_KEY_B64", PUBLIC_LICENSE_KEY_B64)
+    os.environ.setdefault(
+        "PMPOSHAN_ALLOWED_ORIGINS",
+        "http://127.0.0.1:5173,http://localhost:5173,http://tauri.localhost,tauri://localhost",
+    )
+
+
+def _configure_bundled_schema(runtime_module: object) -> None:
+    bundle_root = getattr(sys, "_MEIPASS", None)
+    if bundle_root:
+        schema_path = Path(bundle_root) / "standalone" / "schema.sql"
+        setattr(runtime_module, "SCHEMA_PATH", schema_path)
+
+
+def main() -> None:
+    _prepare_environment()
+
+    import runtime
+
+    _configure_bundled_schema(runtime)
+
+    from bridge import app
+    import uvicorn
+
+    # Standalone bridge is intentionally loopback-only. Never expose it on
+    # 0.0.0.0 from the packaged desktop application.
+    uvicorn.run(app, host="127.0.0.1", port=8765, log_level="warning")
+
+
+if __name__ == "__main__":
+    main()
