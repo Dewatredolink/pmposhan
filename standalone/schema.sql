@@ -137,6 +137,80 @@ CREATE TABLE IF NOT EXISTS recipes (
   CHECK (effective_to IS NULL OR effective_from <= effective_to)
 );
 
+CREATE TABLE IF NOT EXISTS menu_schedules (
+  id TEXT PRIMARY KEY,
+  school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  menu_date TEXT NOT NULL,
+  menu_id TEXT NOT NULL REFERENCES menus(id) ON DELETE RESTRICT,
+  remarks TEXT,
+  active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0,1)),
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (school_id, menu_date)
+);
+
+CREATE TABLE IF NOT EXISTS daily_attendance (
+  id TEXT PRIMARY KEY,
+  school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  meal_date TEXT NOT NULL,
+  class_1_5_enrolled INTEGER NOT NULL DEFAULT 0 CHECK (class_1_5_enrolled >= 0),
+  class_1_5_present INTEGER NOT NULL DEFAULT 0 CHECK (class_1_5_present >= 0),
+  class_6_8_enrolled INTEGER NOT NULL DEFAULT 0 CHECK (class_6_8_enrolled >= 0),
+  class_6_8_present INTEGER NOT NULL DEFAULT 0 CHECK (class_6_8_present >= 0),
+  status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','SUBMITTED','VERIFIED')),
+  entered_by_user_id TEXT REFERENCES local_users(id) ON DELETE SET NULL,
+  entered_by_username TEXT NOT NULL,
+  verified_by_user_id TEXT REFERENCES local_users(id) ON DELETE SET NULL,
+  verified_by_username TEXT,
+  verified_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (school_id, meal_date),
+  CHECK (class_1_5_present <= class_1_5_enrolled),
+  CHECK (class_6_8_present <= class_6_8_enrolled)
+);
+
+CREATE TABLE IF NOT EXISTS daily_meal_entries (
+  id TEXT PRIMARY KEY,
+  school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  meal_date TEXT NOT NULL,
+  menu_id TEXT NOT NULL REFERENCES menus(id) ON DELETE RESTRICT,
+  meals_class_1_5 INTEGER NOT NULL DEFAULT 0 CHECK (meals_class_1_5 >= 0),
+  meals_class_6_8 INTEGER NOT NULL DEFAULT 0 CHECK (meals_class_6_8 >= 0),
+  total_meals INTEGER NOT NULL DEFAULT 0 CHECK (total_meals >= 0),
+  tasting_done INTEGER NOT NULL DEFAULT 0 CHECK (tasting_done IN (0,1)),
+  hygiene_ok INTEGER NOT NULL DEFAULT 0 CHECK (hygiene_ok IN (0,1)),
+  remarks TEXT,
+  status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','SUBMITTED','VERIFIED')),
+  entered_by_user_id TEXT REFERENCES local_users(id) ON DELETE SET NULL,
+  entered_by_username TEXT NOT NULL,
+  verified_by_user_id TEXT REFERENCES local_users(id) ON DELETE SET NULL,
+  verified_by_username TEXT,
+  verified_at TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (school_id, meal_date),
+  CHECK (total_meals = meals_class_1_5 + meals_class_6_8)
+);
+
+CREATE TABLE IF NOT EXISTS stock_transactions (
+  id TEXT PRIMARY KEY,
+  school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  ingredient_id TEXT NOT NULL REFERENCES ingredients(id) ON DELETE RESTRICT,
+  transaction_date TEXT NOT NULL,
+  transaction_type TEXT NOT NULL,
+  quantity REAL NOT NULL,
+  reference_type TEXT NOT NULL,
+  reference_id TEXT NOT NULL,
+  reference_no TEXT,
+  remarks TEXT,
+  entered_by_user_id TEXT REFERENCES local_users(id) ON DELETE SET NULL,
+  entered_by_username TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (school_id, ingredient_id, reference_type, reference_id, transaction_type)
+);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   id TEXT PRIMARY KEY,
   occurred_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -167,4 +241,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_academic_year_current ON academic_years(is_
 CREATE INDEX IF NOT EXISTS ix_ingredients_active_name ON ingredients(active, name_en);
 CREATE INDEX IF NOT EXISTS ix_menus_day_code ON menus(day_of_week, code);
 CREATE INDEX IF NOT EXISTS ix_recipes_lookup ON recipes(menu_id, ingredient_id, student_group, effective_from);
+CREATE INDEX IF NOT EXISTS ix_menu_schedules_school_date ON menu_schedules(school_id, menu_date);
+CREATE INDEX IF NOT EXISTS ix_daily_attendance_school_date ON daily_attendance(school_id, meal_date);
+CREATE INDEX IF NOT EXISTS ix_daily_meal_school_date ON daily_meal_entries(school_id, meal_date);
+CREATE INDEX IF NOT EXISTS ix_stock_transactions_balance ON stock_transactions(school_id, ingredient_id, transaction_date);
 CREATE INDEX IF NOT EXISTS ix_audit_occurred_at ON audit_log(occurred_at);
