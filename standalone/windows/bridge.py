@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import os
 import secrets
+from datetime import date
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
+import master_service
 import operations
 import runtime
 
@@ -261,6 +263,149 @@ def update_academic_year(year_id: str, body: AcademicYearUpdateRequest, user: di
 def make_academic_year_current(year_id: str, user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
     try:
         return operations.make_academic_year_current(year_id, user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+# Master-data compatibility routes used by the existing React Master Data page.
+@app.get("/api/v1/master/districts")
+def master_districts(user: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    return master_service.list_districts()
+
+
+@app.post("/api/v1/master/districts")
+def master_create_district(body: dict[str, Any], user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return master_service.create_district(body, user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.put("/api/v1/master/districts/{row_id}")
+def master_update_district(row_id: str, body: dict[str, Any], user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return master_service.update_district(row_id, body, user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.get("/api/v1/master/blocks")
+def master_blocks(user: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    return master_service.list_blocks()
+
+
+@app.post("/api/v1/master/blocks")
+def master_create_block(body: dict[str, Any], user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return master_service.create_block(body, user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.put("/api/v1/master/blocks/{row_id}")
+def master_update_block(row_id: str, body: dict[str, Any], user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return master_service.update_block(row_id, body, user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.get("/api/v1/master/clusters")
+def master_clusters(user: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    return master_service.list_clusters()
+
+
+@app.post("/api/v1/master/clusters")
+def master_create_cluster(body: dict[str, Any], user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return master_service.create_cluster(body, user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.put("/api/v1/master/clusters/{row_id}")
+def master_update_cluster(row_id: str, body: dict[str, Any], user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return master_service.update_cluster(row_id, body, user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.get("/api/v1/master/schools")
+def master_schools(user: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    return master_service.list_schools()
+
+
+@app.post("/api/v1/master/schools")
+def master_create_school(body: dict[str, Any], user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return master_service.create_school(body, user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.put("/api/v1/master/schools/{row_id}")
+def master_update_school(row_id: str, body: dict[str, Any], user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return master_service.update_school(row_id, body, user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.get("/api/v1/master/ingredients")
+def master_ingredients(user: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    return master_service.list_ingredients()
+
+
+@app.post("/api/v1/master/ingredients")
+def master_create_ingredient(body: dict[str, Any], user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return master_service.create_ingredient(body, user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.put("/api/v1/master/ingredients/{row_id}")
+def master_update_ingredient(row_id: str, body: dict[str, Any], user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return master_service.update_ingredient(row_id, body, user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.get("/api/v1/master/menus")
+def master_menus(user: dict[str, Any] = Depends(require_admin)) -> list[dict[str, Any]]:
+    return master_service.list_menus()
+
+
+@app.post("/api/v1/master/menus")
+def master_create_menu(body: dict[str, Any], user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return master_service.create_menu(body, user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.put("/api/v1/master/menus/{row_id}")
+def master_update_menu(row_id: str, body: dict[str, Any], user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return master_service.update_menu(row_id, body, user["id"])
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.get("/api/v1/master/menus/{menu_id}/recipe-standard")
+def master_recipe_standard(menu_id: str, on_date: str | None = None, user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return master_service.get_recipe_standard(menu_id, on_date or date.today().isoformat())
+    except (ValueError, KeyError) as exc:
+        raise _service_error(exc) from exc
+
+
+@app.put("/api/v1/master/menus/{menu_id}/recipe-standard")
+def master_save_recipe_standard(menu_id: str, body: dict[str, Any], user: dict[str, Any] = Depends(require_admin)) -> dict[str, Any]:
+    try:
+        return master_service.save_recipe_standard(menu_id, body, user["id"])
     except (ValueError, KeyError) as exc:
         raise _service_error(exc) from exc
 
