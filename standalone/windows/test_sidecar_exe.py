@@ -4,6 +4,7 @@ import gc
 import json
 import os
 import shutil
+import socket
 import subprocess
 import tempfile
 import time
@@ -16,14 +17,21 @@ ROOT = Path(__file__).resolve().parents[2]
 EXE = Path(__file__).resolve().parent / "dist" / "pmposhan-bridge.exe"
 
 
-def wait_for_health(process: subprocess.Popen[bytes], timeout: float = 25.0) -> dict:
+def free_loopback_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def wait_for_health(process: subprocess.Popen[bytes], port: int, timeout: float = 25.0) -> dict:
     deadline = time.time() + timeout
     last_error: Exception | None = None
+    url = f"http://127.0.0.1:{port}/api/v1/health"
     while time.time() < deadline:
         if process.poll() is not None:
             raise RuntimeError(f"Sidecar exited early with code {process.returncode}")
         try:
-            response = httpx.get("http://127.0.0.1:8765/api/v1/health", timeout=1.0)
+            response = httpx.get(url, timeout=1.0)
             if response.status_code == 200:
                 return response.json()
         except Exception as exc:
@@ -33,12 +41,7 @@ def wait_for_health(process: subprocess.Popen[bytes], timeout: float = 25.0) -> 
 
 
 def cleanup_temp_dir(path: Path) -> None:
-    """Remove a Windows smoke-test directory after the sidecar releases SQLite.
-
-    Windows can briefly retain a file handle to pmposhan.db after the packaged
-    process exits. Retrying cleanup avoids turning a successful runtime test
-    into a false failure because of that short-lived OS/filesystem race.
-    """
+    """Remove a Windows smoke-test directory after the sidecar releases SQLite."""
     gc.collect()
     last_error: Exception | None = None
     for _ in range(20):
@@ -50,8 +53,6 @@ def cleanup_temp_dir(path: Path) -> None:
         except PermissionError as exc:
             last_error = exc
             time.sleep(0.25)
-    # Cleanup is not part of the runtime contract. Leave the temporary folder
-    # for Windows to release later rather than failing an otherwise valid test.
     print(f"WARNING: temporary smoke-test directory could not be removed: {path}: {last_error}")
 
 
@@ -60,10 +61,12 @@ def main() -> None:
         raise FileNotFoundError(f"Build the sidecar first: {EXE}")
 
     temp_dir = Path(tempfile.mkdtemp(prefix="pmposhan-sidecar-smoke-"))
+    port = free_loopback_port()
     process: subprocess.Popen[bytes] | None = None
     try:
         env = os.environ.copy()
         env["PMPOSHAN_DATA_DIR"] = str(temp_dir)
+        env["PMPOSHAN_BRIDGE_PORT"] = str(port)
 
         process = subprocess.Popen(
             [str(EXE)],
@@ -72,7 +75,7 @@ def main() -> None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-        health = wait_for_health(process)
+        health = wait_for_health(process, port)
         db_path = temp_dir / "data" / "pmposhan.db"
         if not health.get("ok") or health.get("mode") != "standalone":
             raise AssertionError(f"Unexpected health response: {health}")
@@ -88,6 +91,7 @@ def main() -> None:
             "loopback_health": True,
             "bundled_schema": True,
             "sqlite_created": True,
+            "isolated_port": port,
             "installation_id": health["installation_id"],
             "exe": str(EXE),
         }, indent=2))
