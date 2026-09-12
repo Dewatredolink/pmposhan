@@ -149,6 +149,20 @@ CREATE TABLE IF NOT EXISTS menu_schedules (
   UNIQUE (school_id, menu_date)
 );
 
+CREATE TABLE IF NOT EXISTS school_calendar_days (
+  id TEXT PRIMARY KEY,
+  school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  calendar_date TEXT NOT NULL,
+  day_type TEXT NOT NULL DEFAULT 'WORKING' CHECK (day_type IN ('WORKING','SUNDAY','PUBLIC_HOLIDAY','SCHOOL_HOLIDAY','LOCAL_HOLIDAY','CLOSURE','EXAM_NON_MEAL')),
+  meal_required INTEGER NOT NULL DEFAULT 1 CHECK (meal_required IN (0,1)),
+  title_en TEXT,
+  title_mr TEXT,
+  remarks TEXT,
+  created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE (school_id, calendar_date)
+);
+
 CREATE TABLE IF NOT EXISTS daily_attendance (
   id TEXT PRIMARY KEY,
   school_id TEXT NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -308,6 +322,8 @@ CREATE INDEX IF NOT EXISTS ix_ingredients_active_name ON ingredients(active, nam
 CREATE INDEX IF NOT EXISTS ix_menus_day_code ON menus(day_of_week, code);
 CREATE INDEX IF NOT EXISTS ix_recipes_lookup ON recipes(menu_id, ingredient_id, student_group, effective_from);
 CREATE INDEX IF NOT EXISTS ix_menu_schedules_school_date ON menu_schedules(school_id, menu_date);
+CREATE INDEX IF NOT EXISTS ix_school_calendar_days_school_date ON school_calendar_days(school_id, calendar_date);
+CREATE INDEX IF NOT EXISTS ix_school_calendar_days_meal_required ON school_calendar_days(school_id, meal_required, calendar_date);
 CREATE INDEX IF NOT EXISTS ix_daily_attendance_school_date ON daily_attendance(school_id, meal_date);
 CREATE INDEX IF NOT EXISTS ix_daily_meal_school_date ON daily_meal_entries(school_id, meal_date);
 CREATE INDEX IF NOT EXISTS ix_stock_transactions_balance ON stock_transactions(school_id, ingredient_id, transaction_date);
