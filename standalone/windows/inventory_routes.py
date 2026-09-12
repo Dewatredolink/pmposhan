@@ -11,7 +11,7 @@ def build_router(
     current_user: Callable[..., dict[str, Any]],
     service_error: Callable[[Exception], HTTPException],
 ) -> APIRouter:
-    router = APIRouter(prefix="/api/v1")
+    router = APIRouter()
 
     def require_headmaster(user: dict[str, Any] = Depends(current_user)) -> dict[str, Any]:
         if user.get("role") not in {"HEADMASTER", "SYSTEM_ADMIN"}:
