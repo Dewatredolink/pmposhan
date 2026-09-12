@@ -10,10 +10,15 @@ PUBLIC_LICENSE_KEY_B64 = "3vsN+dDnufUGNaUnev+i4WMYqRU5OocDl2jXIUWvoFA="
 
 
 def _default_data_dir() -> Path:
-    program_data = os.environ.get("PROGRAMDATA")
-    if program_data:
-        return Path(program_data) / "PMPoshan"
-    return Path.home() / "PMPoshanStandalone"
+    # The Windows desktop bundle is installed in current-user mode. Store all
+    # mutable standalone data in the current user's LocalAppData so the app
+    # does not require administrator rights or ProgramData ACL changes.
+    local_app_data = os.environ.get("LOCALAPPDATA")
+    if local_app_data:
+        return Path(local_app_data) / "PMPoshan"
+
+    # Fallback for unusual/non-Windows environments and development shells.
+    return Path.home() / ".pmposhan"
 
 
 def _prepare_environment() -> None:
