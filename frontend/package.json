@@ -7,19 +7,31 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "build:standalone": "tsc -b && vite build --mode standalone",
+    "build:android": "tsc -b && vite build --mode android",
+    "android:add": "cap add android",
+    "android:sync": "npm run build:android && cap sync android",
+    "android:open": "cap open android",
+    "android:run": "npm run android:sync && cap run android",
     "tauri": "tauri"
   },
   "dependencies": {
+    "@capacitor-community/sqlite": "latest",
+    "@capacitor/android": "latest",
+    "@capacitor/core": "latest",
+    "@capacitor/preferences": "latest",
     "@vitejs/plugin-react": "latest",
     "vite": "latest",
     "typescript": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "keycloak-js": "latest"
+    "keycloak-js": "latest",
+    "tweetnacl": "latest"
   },
   "devDependencies": {
+    "@capacitor/cli": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
+    "@types/tweetnacl": "latest",
     "@tauri-apps/cli": "^2.8.4"
   }
 }
