@@ -26,6 +26,9 @@ export function hasStandaloneSession(): boolean {
 
 export async function publicApiFetch(path: string, init: RequestInit = {}) {
   if (androidMode) {
+    const { tryAndroidMasterApiFetch } = await import('./mobile/androidMasterRuntime');
+    const masterResponse = await tryAndroidMasterApiFetch(path, init);
+    if (masterResponse) return masterResponse;
     const { androidApiFetch } = await import('./mobile/androidRuntime');
     return androidApiFetch(path, init);
   }
