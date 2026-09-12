@@ -8,3 +8,5 @@ backups/
 *.license.json
 *PRIVATE_KEY*
 license_keys/
+
+infra/nginx/certs/
