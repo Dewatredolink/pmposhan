@@ -32,10 +32,25 @@ if (-not $cargo -or -not $rustc) {
     throw "Rust toolchain not found. Install Rustup first (for example: winget install --id Rustlang.Rustup -e), then open a new PowerShell window and rerun this script."
 }
 
+# Tauri CLI is launched by npm as a child process. On Windows, Rustup may be
+# installed in $HOME\.cargo\bin even when the current PowerShell PATH has not
+# refreshed yet. Explicitly prepend the resolved Rust directory so npm/Tauri
+# can run `cargo metadata`, rustc, and subsequent Cargo commands reliably.
+$cargoDir = Split-Path -Parent $cargo
+if (-not (($env:PATH -split ';') -contains $cargoDir)) {
+    $env:PATH = "$cargoDir;$env:PATH"
+}
+
 Write-Host "NODE=$node"
 Write-Host "NPM=$npm"
 Write-Host "CARGO=$cargo"
 Write-Host "RUSTC=$rustc"
+Write-Host "RUST_PATH_READY=$cargoDir"
+
+& $cargo --version
+if ($LASTEXITCODE -ne 0) { throw "cargo exists but could not run" }
+& $rustc --version
+if ($LASTEXITCODE -ne 0) { throw "rustc exists but could not run" }
 
 Push-Location $repoRoot
 try {
