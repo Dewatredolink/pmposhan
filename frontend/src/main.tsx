@@ -1,8 +1,10 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
-import { initAuth } from './auth';
+import { hasStandaloneSession, initAuth, isStandaloneMode } from './auth';
 import ActivationScreen, { fetchLicenseStatus } from './pages/ActivationScreen';
+import StandaloneLogin from './standalone/StandaloneLogin';
+import StandaloneSetup, { fetchStandaloneSetupStatus } from './standalone/StandaloneSetup';
 
 async function bootstrap() {
   const root = ReactDOM.createRoot(document.getElementById('root')!);
@@ -16,6 +18,27 @@ async function bootstrap() {
       );
       return;
     }
+
+    if (isStandaloneMode()) {
+      const setup = await fetchStandaloneSetupStatus();
+      if (setup.needs_admin) {
+        root.render(
+          <React.StrictMode>
+            <StandaloneSetup onCreated={() => window.location.reload()} />
+          </React.StrictMode>
+        );
+        return;
+      }
+      if (!hasStandaloneSession()) {
+        root.render(
+          <React.StrictMode>
+            <StandaloneLogin onLoggedIn={() => window.location.reload()} />
+          </React.StrictMode>
+        );
+        return;
+      }
+    }
+
     await initAuth();
     root.render(
       <React.StrictMode>
@@ -26,8 +49,10 @@ async function bootstrap() {
     console.error(error);
     root.render(
       <div style={{padding: 24, fontFamily: 'system-ui'}}>
-        <h2>PM POSHAN authentication failed</h2>
-        <p>Please confirm Keycloak is running at http://localhost:8080 and reload the page.</p>
+        <h2>PM POSHAN startup failed</h2>
+        <p>{isStandaloneMode()
+          ? 'Please confirm the PM POSHAN local service is running on this computer and reload the app.'
+          : 'Please confirm Keycloak and the PM POSHAN server are running and reload the page.'}</p>
       </div>
     );
   }
@@ -42,4 +67,3 @@ if ('serviceWorker' in navigator) {
     });
   });
 }
-
