@@ -20,7 +20,9 @@ def build_router(
     current_user: Callable[..., dict[str, Any]],
     service_error: Callable[[Exception], Exception],
 ) -> APIRouter:
-    router = APIRouter(prefix="/api/v1")
+    # This router is nested inside daily_routes, whose parent already owns the
+    # /api/v1 prefix. Keeping this child prefix-free avoids /api/v1/api/v1/...
+    router = APIRouter()
 
     @router.get("/school-profiles/{school_id}")
     def get_school_profile(
