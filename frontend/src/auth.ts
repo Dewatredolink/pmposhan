@@ -50,6 +50,10 @@ export async function publicApiFetch(path: string, init: RequestInit = {}) {
     const calendarMonthlyResponse = await tryAndroidCalendarMonthlyApiFetch(androidPath, init);
     if (calendarMonthlyResponse) return calendarMonthlyResponse;
 
+    const { tryAndroidAdminDashboardApiFetch } = await import('./mobile/androidAdminDashboardRuntime');
+    const adminDashboardResponse = await tryAndroidAdminDashboardApiFetch(androidPath, init);
+    if (adminDashboardResponse) return adminDashboardResponse;
+
     const { androidApiFetch } = await import('./mobile/androidRuntime');
     return androidApiFetch(androidPath, init);
   }
