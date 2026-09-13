@@ -26,10 +26,9 @@ export function hasStandaloneSession(): boolean {
 
 export async function publicApiFetch(path: string, init: RequestInit = {}) {
   if (androidMode) {
-    // The existing web UI uses /ingredients for operational stock screens,
-    // while Android master data is exposed locally as /master/ingredients.
-    // Keep the server contract unchanged and translate only inside Android.
-    const androidPath = path === '/ingredients' ? '/master/ingredients' : path;
+    // Keep the existing web/server API contract intact. Android handles a few
+    // historical aliases locally so stock/workbook screens can use the same UI.
+    const androidPath = path === '/master-data/ingredients' ? '/ingredients' : path;
 
     const { tryAndroidMasterApiFetch } = await import('./mobile/androidMasterRuntime');
     const masterResponse = await tryAndroidMasterApiFetch(androidPath, init);
@@ -42,6 +41,10 @@ export async function publicApiFetch(path: string, init: RequestInit = {}) {
     const { tryAndroidStockApiFetch } = await import('./mobile/androidStockRuntime');
     const stockResponse = await tryAndroidStockApiFetch(androidPath, init);
     if (stockResponse) return stockResponse;
+
+    const { tryAndroidWorkbookParityApiFetch } = await import('./mobile/androidWorkbookParityRuntime');
+    const workbookResponse = await tryAndroidWorkbookParityApiFetch(androidPath, init);
+    if (workbookResponse) return workbookResponse;
 
     const { androidApiFetch } = await import('./mobile/androidRuntime');
     return androidApiFetch(androidPath, init);
