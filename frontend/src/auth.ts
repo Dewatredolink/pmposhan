@@ -54,6 +54,10 @@ export async function publicApiFetch(path: string, init: RequestInit = {}) {
     const adminDashboardResponse = await tryAndroidAdminDashboardApiFetch(androidPath, init);
     if (adminDashboardResponse) return adminDashboardResponse;
 
+    const { tryAndroidReportingApiFetch } = await import('./mobile/androidReportingRuntime');
+    const reportingResponse = await tryAndroidReportingApiFetch(androidPath, init);
+    if (reportingResponse) return reportingResponse;
+
     const { androidApiFetch } = await import('./mobile/androidRuntime');
     return androidApiFetch(androidPath, init);
   }
