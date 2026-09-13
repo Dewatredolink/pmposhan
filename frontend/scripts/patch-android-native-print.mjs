@@ -48,7 +48,7 @@ public class NativePrintPlugin extends Plugin {
     public void print(PluginCall call) {
         getActivity().runOnUiThread(() -> {
             try {
-                WebView webView = getBridge().getWebView();
+                WebView webView = bridge.getWebView();
                 PrintManager printManager = (PrintManager) getActivity().getSystemService(Context.PRINT_SERVICE);
                 String jobName = call.getString("jobName", "PM POSHAN");
                 PrintDocumentAdapter adapter = webView.createPrintDocumentAdapter(jobName);
