@@ -27,7 +27,7 @@ export default function MenuPlanner({lang,schools,schoolId,setSchoolId}:Props){
   const c15 = school?.class_1_5_strength || 0;
   const c68 = school?.class_6_8_strength || 0;
 
-  useEffect(()=>{ apiFetch('/menus').then(async r=>{if(!r.ok) throw new Error(await r.text()); return r.json()}).then(setMenus).catch(e=>setMessage(String(e))); },[]);
+  useEffect(()=>{ apiFetch('/menus').then(async r=>{if(!r.ok) throw new Error(await r.text()); return r.json()}).then(d=>setMenus(Array.isArray(d)?d:[])).catch(e=>setMessage(String(e))); },[]);
 
   async function loadPlan(){
     if(!schoolId||!date) return;
@@ -51,10 +51,18 @@ export default function MenuPlanner({lang,schools,schoolId,setSchoolId}:Props){
       .catch(e=>{setItems([]);setMessage(String(e));});
   },[menuId,date,c15,c68]);
 
-  const suggested = useMemo(()=>{
-    const dow=new Date(`${date}T12:00:00`).getDay();
-    return menus.filter(m=>m.day_of_week===dow);
-  },[menus,date]);
+  const selectedDay = useMemo(()=>new Date(`${date}T12:00:00`).getDay(),[date]);
+  const orderedMenus = useMemo(()=>{
+    return [...menus].sort((a,b)=>{
+      const aSuggested = a.day_of_week===selectedDay ? 0 : 1;
+      const bSuggested = b.day_of_week===selectedDay ? 0 : 1;
+      if(aSuggested!==bSuggested) return aSuggested-bSuggested;
+      const week = String(a.week_pattern||'').localeCompare(String(b.week_pattern||''));
+      if(week!==0) return week;
+      if(a.day_of_week!==b.day_of_week) return a.day_of_week-b.day_of_week;
+      return a.code.localeCompare(b.code);
+    });
+  },[menus,selectedDay]);
 
   async function save(){
     if(!schoolId||!date||!menuId){setMessage(lang==='mr'?'शाळा, दिनांक आणि मेनू निवडा.':'Select school, date and menu.');return;}
@@ -72,7 +80,7 @@ export default function MenuPlanner({lang,schools,schoolId,setSchoolId}:Props){
     <section className="panel form-grid compact">
       <label>{lang==='mr'?'शाळा':'School'}<select value={schoolId} onChange={e=>setSchoolId(e.target.value)}>{schools.map(s=><option key={s.id} value={s.id}>{lang==='mr'?s.name_mr:s.name_en}</option>)}</select></label>
       <label>{lang==='mr'?'दिनांक':'Date'}<input type="date" value={date} onChange={e=>setDate(e.target.value)}/></label>
-      <label className="span-2">{lang==='mr'?'त्या दिवसाचा मेनू':'Menu for the selected date'}<select value={menuId} onChange={e=>setMenuId(e.target.value)}><option value="">-- {lang==='mr'?'मेनू निवडा':'Select menu'} --</option>{(suggested.length?suggested:menus).map(m=><option key={m.id} value={m.id}>{lang==='mr'?m.name_mr:m.name_en} ({m.code})</option>)}</select></label>
+      <label className="span-2">{lang==='mr'?'त्या दिवसाचा मेनू':'Menu for the selected date'}<select value={menuId} onChange={e=>setMenuId(e.target.value)}><option value="">-- {lang==='mr'?'मेनू निवडा':'Select menu'} --</option>{orderedMenus.map(m=><option key={m.id} value={m.id}>{m.day_of_week===selectedDay?'★ ':''}{lang==='mr'?m.name_mr:m.name_en} [{m.week_pattern}] ({m.code})</option>)}</select><small>{lang==='mr'?`सर्व ${menus.length} मेनू दाखवले आहेत. ★ = निवडलेल्या वारासाठी सुचवलेला मेनू.`:`Showing all ${menus.length} menus. ★ = suggested for the selected weekday.`}</small></label>
       <label className="span-2">{lang==='mr'?'शेरा':'Remarks'}<textarea value={remarks} onChange={e=>setRemarks(e.target.value)}/></label>
     </section>
 
