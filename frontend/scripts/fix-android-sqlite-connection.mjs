@@ -5,57 +5,51 @@ import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const src = path.resolve(here, '..', 'src', 'mobile');
 
-function patchFile(fileName, replacements) {
+const sqliteModule = "@capacitor-community/sqlite";
+const typeImport = `import type { SQLiteDBConnection } from '${sqliteModule}';`;
+const sharedImport = `import { getSharedAndroidDb } from './androidSharedDb';`;
+
+function normalizeSharedImports(text) {
+  // Accept both the old direct CapacitorSQLite import and an already-patched file.
+  text = text.replace(
+    /import\s+\{[^\n]*CapacitorSQLite[^\n]*\}\s+from\s+['"]@capacitor-community\/sqlite['"];?\r?\n?/,
+    '',
+  );
+
+  // De-duplicate prior partial patches before adding the canonical pair.
+  text = text.replace(
+    /import\s+type\s+\{\s*SQLiteDBConnection\s*\}\s+from\s+['"]@capacitor-community\/sqlite['"];?\r?\n?/g,
+    '',
+  );
+  text = text.replace(
+    /import\s+\{\s*getSharedAndroidDb\s*\}\s+from\s+['"]\.\/androidSharedDb['"];?\r?\n?/g,
+    '',
+  );
+
+  return `${typeImport}\n${sharedImport}\n${text}`;
+}
+
+function replaceFunctionBlock(text, startMarker, endMarker, replacement, fileName) {
+  const start = text.indexOf(startMarker);
+  if (start < 0) throw new Error(`${fileName}: ${startMarker} not found`);
+  const end = text.indexOf(endMarker, start);
+  if (end < 0) throw new Error(`${fileName}: ${endMarker} not found`);
+  return text.slice(0, start) + replacement.trimEnd() + '\n\n' + text.slice(end);
+}
+
+function writeIfChanged(fileName, transform) {
   const filePath = path.join(src, fileName);
-  let text = fs.readFileSync(filePath, 'utf8');
-  let changed = false;
-
-  for (const [from, to] of replacements) {
-    if (text.includes(to)) continue;
-    if (!text.includes(from)) {
-      throw new Error(`${fileName}: expected source block not found. Refusing partial patch.`);
-    }
-    text = text.replace(from, to);
-    changed = true;
-  }
-
-  if (changed) {
-    fs.writeFileSync(filePath, text, 'utf8');
+  const before = fs.readFileSync(filePath, 'utf8');
+  const after = transform(before);
+  if (after !== before) {
+    fs.writeFileSync(filePath, after, 'utf8');
     console.log(`PATCHED ${fileName}`);
   } else {
     console.log(`OK      ${fileName}`);
   }
 }
 
-const baseImport = "import { CapacitorSQLite, SQLiteConnection, type SQLiteDBConnection } from '@capacitor-community/sqlite';";
-const sharedImport = "import type { SQLiteDBConnection } from '@capacitor-community/sqlite';\nimport { getSharedAndroidDb } from './androidSharedDb';";
-const connectionState = "const sqlite = new SQLiteConnection(CapacitorSQLite);\nlet dbPromise: Promise<SQLiteDBConnection> | null = null;";
-const sharedState = "let dbPromise: Promise<SQLiteDBConnection> | null = null;";
-
-const runtimeOpenOld = `async function openDb(): Promise<SQLiteDBConnection> {
-  if (!dbPromise) {
-    dbPromise = (async () => {
-      const consistent = (await sqlite.checkConnectionsConsistency()).result;
-      const exists = (await sqlite.isConnection(DB_NAME, false)).result;
-      const db = consistent && exists
-        ? await sqlite.retrieveConnection(DB_NAME, false)
-        : await sqlite.createConnection(DB_NAME, false, 'no-encryption', DB_VERSION, false);
-      await db.open();
-      await db.execute(BOOTSTRAP_SCHEMA);
-      const state = await db.query('SELECT installation_id FROM installation_state WHERE id=1');
-      if (!state.values?.length) {
-        await db.run(
-          'INSERT INTO installation_state (id,installation_id,app_version,schema_version) VALUES (1,?,?,?)',
-          [uuid(), '1.0-android-dev', DB_VERSION],
-        );
-      }
-      return db;
-    })();
-  }
-  return dbPromise;
-}`;
-
-const runtimeOpenNew = `async function openDb(): Promise<SQLiteDBConnection> {
+const runtimeOpen = `async function openDb(): Promise<SQLiteDBConnection> {
   if (!dbPromise) {
     dbPromise = (async () => {
       const db = await getSharedAndroidDb();
@@ -76,24 +70,7 @@ const runtimeOpenNew = `async function openDb(): Promise<SQLiteDBConnection> {
   return dbPromise;
 }`;
 
-const masterOpenOld = `async function getDb(): Promise<SQLiteDBConnection> {
-  if (!dbPromise) {
-    dbPromise = (async () => {
-      const consistent = (await sqlite.checkConnectionsConsistency()).result;
-      const exists = (await sqlite.isConnection(DB_NAME, false)).result;
-      const db = consistent && exists
-        ? await sqlite.retrieveConnection(DB_NAME, false)
-        : await sqlite.createConnection(DB_NAME, false, 'no-encryption', DB_VERSION, false);
-      try { await db.open(); } catch { /* already open */ }
-      await ensureSchema(db);
-      await seedGovernmentMasters(db);
-      return db;
-    })();
-  }
-  return dbPromise;
-}`;
-
-const masterOpenNew = `async function getDb(): Promise<SQLiteDBConnection> {
+const masterOpen = `async function getDb(): Promise<SQLiteDBConnection> {
   if (!dbPromise) {
     dbPromise = (async () => {
       const db = await getSharedAndroidDb();
@@ -108,23 +85,7 @@ const masterOpenNew = `async function getDb(): Promise<SQLiteDBConnection> {
   return dbPromise;
 }`;
 
-const operationsOpenOld = `async function getDb(): Promise<SQLiteDBConnection> {
-  if (!dbPromise) {
-    dbPromise = (async () => {
-      const consistent = (await sqlite.checkConnectionsConsistency()).result;
-      const exists = (await sqlite.isConnection(DB_NAME, false)).result;
-      const db = consistent && exists
-        ? await sqlite.retrieveConnection(DB_NAME, false)
-        : await sqlite.createConnection(DB_NAME, false, 'no-encryption', DB_VERSION, false);
-      try { await db.open(); } catch { /* existing shared connection may already be open */ }
-      await ensureSchema(db);
-      return db;
-    })();
-  }
-  return dbPromise;
-}`;
-
-const operationsOpenNew = `async function getDb(): Promise<SQLiteDBConnection> {
+const operationsOpen = `async function getDb(): Promise<SQLiteDBConnection> {
   if (!dbPromise) {
     dbPromise = (async () => {
       const db = await getSharedAndroidDb();
@@ -138,24 +99,56 @@ const operationsOpenNew = `async function getDb(): Promise<SQLiteDBConnection> {
   return dbPromise;
 }`;
 
-patchFile('androidRuntime.ts', [
-  [baseImport, sharedImport],
-  [connectionState, sharedState],
-  [runtimeOpenOld, runtimeOpenNew],
-]);
+writeIfChanged('androidRuntime.ts', text => {
+  text = normalizeSharedImports(text);
+  text = text.replace(/const sqlite = new SQLiteConnection\(CapacitorSQLite\);\r?\n?/g, '');
+  text = text.replace(/const DB_NAME = 'pmposhan';\r?\n?/g, '');
+  text = replaceFunctionBlock(
+    text,
+    'async function openDb(): Promise<SQLiteDBConnection> {',
+    'async function installationId(): Promise<string> {',
+    runtimeOpen,
+    'androidRuntime.ts',
+  );
+  return text;
+});
 
-patchFile('androidMasterRuntime.ts', [
-  [baseImport, sharedImport],
-  [connectionState, sharedState],
-  ["const DB_NAME = 'pmposhan';\nconst DB_VERSION = 1;\n", ''],
-  [masterOpenOld, masterOpenNew],
-]);
+writeIfChanged('androidMasterRuntime.ts', text => {
+  text = normalizeSharedImports(text);
+  text = text.replace(/const sqlite = new SQLiteConnection\(CapacitorSQLite\);\r?\n?/g, '');
+  text = text.replace(/const DB_NAME = 'pmposhan';\r?\n?/g, '');
+  text = text.replace(/const DB_VERSION = 1;\r?\n?/g, '');
+  text = replaceFunctionBlock(
+    text,
+    'async function getDb(): Promise<SQLiteDBConnection> {',
+    'async function ensureSchema(db: SQLiteDBConnection): Promise<void> {',
+    masterOpen,
+    'androidMasterRuntime.ts',
+  );
+  return text;
+});
 
-patchFile('androidOperationsRuntime.ts', [
-  [baseImport, sharedImport],
-  [connectionState, sharedState],
-  ["const DB_NAME = 'pmposhan';\nconst DB_VERSION = 1;\n", ''],
-  [operationsOpenOld, operationsOpenNew],
-]);
+writeIfChanged('androidOperationsRuntime.ts', text => {
+  text = normalizeSharedImports(text);
+  text = text.replace(/const sqlite = new SQLiteConnection\(CapacitorSQLite\);\r?\n?/g, '');
+  text = text.replace(/const DB_NAME = 'pmposhan';\r?\n?/g, '');
+  text = text.replace(/const DB_VERSION = 1;\r?\n?/g, '');
+  text = replaceFunctionBlock(
+    text,
+    'async function getDb(): Promise<SQLiteDBConnection> {',
+    'async function ensureSchema(db: SQLiteDBConnection): Promise<void> {',
+    operationsOpen,
+    'androidOperationsRuntime.ts',
+  );
+  return text;
+});
+
+for (const fileName of ['androidRuntime.ts','androidMasterRuntime.ts','androidOperationsRuntime.ts']) {
+  const text = fs.readFileSync(path.join(src, fileName), 'utf8');
+  if (!text.includes("getSharedAndroidDb")) throw new Error(`${fileName}: shared DB import missing after patch`);
+  if (text.includes('new SQLiteConnection(') || text.includes('CapacitorSQLite')) {
+    throw new Error(`${fileName}: direct SQLite connection owner remains after patch`);
+  }
+}
 
 console.log('ANDROID_SQLITE_SINGLE_CONNECTION_PATCH_OK');
