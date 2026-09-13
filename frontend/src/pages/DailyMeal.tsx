@@ -60,10 +60,18 @@ export default function DailyMeal({lang, schools, schoolId, setSchoolId}:Props){
 
   useEffect(()=>{ void loadDaily(); },[schoolId,date,school?.class_1_5_strength,school?.class_6_8_strength]);
 
-  const suggestedMenus = useMemo(()=>{
-    const dow = new Date(`${date}T12:00:00`).getDay(); // 1 Mon..6 Sat
-    return menus.filter(x=>x.day_of_week===dow);
-  },[menus,date]);
+  const selectedDay = useMemo(()=>new Date(`${date}T12:00:00`).getDay(),[date]);
+  const orderedMenus = useMemo(()=>{
+    return [...menus].sort((x,y)=>{
+      const xs=x.day_of_week===selectedDay?0:1;
+      const ys=y.day_of_week===selectedDay?0:1;
+      if(xs!==ys) return xs-ys;
+      const week=String(x.week_pattern||'').localeCompare(String(y.week_pattern||''));
+      if(week!==0) return week;
+      if(x.day_of_week!==y.day_of_week) return x.day_of_week-y.day_of_week;
+      return x.code.localeCompare(y.code);
+    });
+  },[menus,selectedDay]);
 
   useEffect(()=>{
     if(!m.menu_id || !date){ setRecipeItems([]); return; }
@@ -119,7 +127,7 @@ export default function DailyMeal({lang, schools, schoolId, setSchoolId}:Props){
     </div><div className="metric-line"><strong>{lang==='mr'?'एकूण उपस्थित':'Total present'}: {totalPresent}</strong></div></section>
 
     <section className="panel"><h3>{lang==='mr'?'2. भोजन नोंद':'2. Meal Entry'}</h3>{plannedLabel&&<div className="notice"><strong>{lang==='mr'?'या दिवसासाठी नियोजित मेनू':'Planned menu for this date'}:</strong> {plannedLabel}</div>}<div className="form-grid">
-      <label className="span-2">{lang==='mr'?'आजचा मेनू':'Today’s Menu'}<select disabled={locked || !!plannedLabel} value={m.menu_id} onChange={e=>setM({...m,menu_id:e.target.value})}><option value="">-- {lang==='mr'?'मेनू निवडा':'Select menu'} --</option>{(suggestedMenus.length?suggestedMenus:menus).map(x=><option key={x.id} value={x.id}>{lang==='mr'?x.name_mr:x.name_en} ({x.code})</option>)}</select></label>
+      <label className="span-2">{lang==='mr'?'आजचा मेनू':'Today’s Menu'}<select disabled={locked || !!plannedLabel} value={m.menu_id} onChange={e=>setM({...m,menu_id:e.target.value})}><option value="">-- {lang==='mr'?'मेनू निवडा':'Select menu'} --</option>{orderedMenus.map(x=><option key={x.id} value={x.id}>{x.day_of_week===selectedDay?'★ ':''}{lang==='mr'?x.name_mr:x.name_en} [{x.week_pattern}] ({x.code})</option>)}</select>{!plannedLabel&&<small>{lang==='mr'?`सर्व ${menus.length} मेनू दाखवले आहेत. ★ = निवडलेल्या वारासाठी सुचवलेला मेनू.`:`Showing all ${menus.length} menus. ★ = suggested for the selected weekday.`}</small>}</label>
       <label>{lang==='mr'?'इ. 1-5 भोजन':'Meals Class 1-5'}<input type="number" min="0" disabled={locked} value={m.m15} onChange={e=>setM({...m,m15:+e.target.value})}/></label>
       <label>{lang==='mr'?'इ. 6-8 भोजन':'Meals Class 6-8'}<input type="number" min="0" disabled={locked} value={m.m68} onChange={e=>setM({...m,m68:+e.target.value})}/></label>
       <label className="check"><input type="checkbox" disabled={locked} checked={m.tasting} onChange={e=>setM({...m,tasting:e.target.checked})}/>{lang==='mr'?'भोजन चव तपासणी पूर्ण':'Meal tasting completed'}</label>
