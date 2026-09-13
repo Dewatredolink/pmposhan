@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../auth';
 import { Lang } from '../i18n/translations';
+import { printCurrentView } from '../mobile/nativePrint';
 
 type Props={lang:Lang};
 type Summary={year:number;month:number;total_schools:number;returns_generated:number;missing_returns:number;approved_returns:number;pending_returns:number;total_attendance:number;total_meals:number;meal_coverage_pct:number;exception_schools:number;low_stock_schools:number;status_counts:Record<string,number>};
@@ -61,8 +62,10 @@ export default function AdminDashboard({lang}:Props){
     const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=`pmposhan-consolidated-${year}-${String(month).padStart(2,'0')}.csv`;a.click();URL.revokeObjectURL(a.href);
   }
 
+  const printReport=()=>void printCurrentView(`PM POSHAN - ${lang==='mr'?'एकत्रित प्रशासकीय अहवाल':'Consolidated Administrative Report'} ${String(month).padStart(2,'0')}-${year}`);
+
   return <main className="content admin-report-page">
-    <div className="page-title no-print"><div><h2>{lang==='mr'?'प्रशासकीय डॅशबोर्ड व एकत्रित अहवाल':'Administrative Dashboard & Consolidated Reporting'}</h2><p>{lang==='mr'?'जिल्हा → ब्लॉक → क्लस्टर → शाळा ड्रिल-डाउन, परतावा स्थिती, आहार कव्हरेज आणि अपवाद.':'District → Block → Cluster → School drill-down, return status, meal coverage and exceptions.'}</p></div><div className="admin-actions"><button className="secondary standalone" disabled={busy} onClick={()=>load()}>{lang==='mr'?'रीफ्रेश':'Refresh'}</button><button className="secondary standalone" onClick={exportCsv}>CSV</button><button className="primary standalone" onClick={()=>window.print()}>{lang==='mr'?'प्रिंट / PDF':'Print / PDF'}</button></div></div>
+    <div className="page-title no-print"><div><h2>{lang==='mr'?'प्रशासकीय डॅशबोर्ड व एकत्रित अहवाल':'Administrative Dashboard & Consolidated Reporting'}</h2><p>{lang==='mr'?'जिल्हा → ब्लॉक → क्लस्टर → शाळा ड्रिल-डाउन, परतावा स्थिती, आहार कव्हरेज आणि अपवाद.':'District → Block → Cluster → School drill-down, return status, meal coverage and exceptions.'}</p></div><div className="admin-actions"><button className="secondary standalone" disabled={busy} onClick={()=>load()}>{lang==='mr'?'रीफ्रेश':'Refresh'}</button><button className="secondary standalone" onClick={exportCsv}>CSV</button><button className="primary standalone" onClick={printReport}>{lang==='mr'?'प्रिंट / PDF':'Print / PDF'}</button></div></div>
 
     <section className="panel form-grid compact no-print"><div className="month-controls"><label>{lang==='mr'?'वर्ष':'Year'}<input type="number" min="2000" max="2200" value={year} onChange={e=>setYear(Number(e.target.value))}/></label><label>{lang==='mr'?'महिना':'Month'}<select value={month} onChange={e=>setMonth(Number(e.target.value))}>{Array.from({length:12},(_,i)=><option key={i+1} value={i+1}>{i+1}</option>)}</select></label></div></section>
 
