@@ -46,6 +46,10 @@ export async function publicApiFetch(path: string, init: RequestInit = {}) {
     const workbookResponse = await tryAndroidWorkbookParityApiFetch(androidPath, init);
     if (workbookResponse) return workbookResponse;
 
+    const { tryAndroidCalendarMonthlyApiFetch } = await import('./mobile/androidCalendarMonthlyRuntime');
+    const calendarMonthlyResponse = await tryAndroidCalendarMonthlyApiFetch(androidPath, init);
+    if (calendarMonthlyResponse) return calendarMonthlyResponse;
+
     const { androidApiFetch } = await import('./mobile/androidRuntime');
     return androidApiFetch(androidPath, init);
   }
