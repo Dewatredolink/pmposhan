@@ -34,6 +34,10 @@ export async function publicApiFetch(path: string, init: RequestInit = {}) {
     const operationsResponse = await tryAndroidOperationsApiFetch(path, init);
     if (operationsResponse) return operationsResponse;
 
+    const { tryAndroidStockApiFetch } = await import('./mobile/androidStockRuntime');
+    const stockResponse = await tryAndroidStockApiFetch(path, init);
+    if (stockResponse) return stockResponse;
+
     const { androidApiFetch } = await import('./mobile/androidRuntime');
     return androidApiFetch(path, init);
   }
