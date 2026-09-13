@@ -26,20 +26,25 @@ export function hasStandaloneSession(): boolean {
 
 export async function publicApiFetch(path: string, init: RequestInit = {}) {
   if (androidMode) {
+    // The existing web UI uses /ingredients for operational stock screens,
+    // while Android master data is exposed locally as /master/ingredients.
+    // Keep the server contract unchanged and translate only inside Android.
+    const androidPath = path === '/ingredients' ? '/master/ingredients' : path;
+
     const { tryAndroidMasterApiFetch } = await import('./mobile/androidMasterRuntime');
-    const masterResponse = await tryAndroidMasterApiFetch(path, init);
+    const masterResponse = await tryAndroidMasterApiFetch(androidPath, init);
     if (masterResponse) return masterResponse;
 
     const { tryAndroidOperationsApiFetch } = await import('./mobile/androidOperationsRuntime');
-    const operationsResponse = await tryAndroidOperationsApiFetch(path, init);
+    const operationsResponse = await tryAndroidOperationsApiFetch(androidPath, init);
     if (operationsResponse) return operationsResponse;
 
     const { tryAndroidStockApiFetch } = await import('./mobile/androidStockRuntime');
-    const stockResponse = await tryAndroidStockApiFetch(path, init);
+    const stockResponse = await tryAndroidStockApiFetch(androidPath, init);
     if (stockResponse) return stockResponse;
 
     const { androidApiFetch } = await import('./mobile/androidRuntime');
-    return androidApiFetch(path, init);
+    return androidApiFetch(androidPath, init);
   }
   return fetch(`${apiBase}${path}`, init);
 }
