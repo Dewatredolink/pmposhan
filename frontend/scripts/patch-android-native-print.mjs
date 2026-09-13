@@ -50,7 +50,8 @@ public class NativePrintPlugin extends Plugin {
             try {
                 WebView webView = bridge.getWebView();
                 PrintManager printManager = (PrintManager) getActivity().getSystemService(Context.PRINT_SERVICE);
-                String jobName = call.getString("jobName", "PM POSHAN");
+                String jobName = call.getString("jobName");
+                if (jobName == null || jobName.trim().isEmpty()) jobName = "PM POSHAN";
                 PrintDocumentAdapter adapter = webView.createPrintDocumentAdapter(jobName);
                 printManager.print(jobName, adapter, new PrintAttributes.Builder().build());
                 JSObject result = new JSObject();
