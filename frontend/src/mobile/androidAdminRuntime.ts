@@ -1,0 +1,50 @@
+import type { SQLiteDBConnection } from '@capacitor-community/sqlite';
+import { androidApiFetch } from './androidRuntime';
+import { tryAndroidMasterApiFetch } from './androidMasterRuntime';
+import { getSharedAndroidDb } from './androidSharedDb';
+
+function jsonResponse(body:unknown,status=200):Response{return new Response(JSON.stringify(body),{status,headers:{'Content-Type':'application/json'}});}
+function uuid():string{return crypto.randomUUID();}
+function utf8(value:string):Uint8Array{return new TextEncoder().encode(value);}
+function bytesToBase64(bytes:Uint8Array):string{let binary='';for(const byte of bytes)binary+=String.fromCharCode(byte);return btoa(binary);}
+async function bodyJson(init:RequestInit):Promise<any>{if(!init.body)return {};if(typeof init.body==='string')return JSON.parse(init.body||'{}');throw new Error('ANDROID_BODY_TYPE_UNSUPPORTED');}
+async function requireAdmin(init:RequestInit):Promise<{response?:Response;user?:any}>{const r=await androidApiFetch('/me',{headers:init.headers||{}});if(!r.ok)return {response:r};const user=await r.json();const role=String(user.role||user.roles?.[0]||'');if(role!=='SYSTEM_ADMIN')return {response:jsonResponse({detail:'SYSTEM_ADMIN_REQUIRED'},403)};return {user};}
+
+async function passwordHash(password:string):Promise<string>{if(password.length<10)throw new Error('PASSWORD_TOO_SHORT');const salt=crypto.getRandomValues(new Uint8Array(16));const key=await crypto.subtle.importKey('raw',utf8(password),'PBKDF2',false,['deriveBits']);const bits=await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:salt as BufferSource,iterations:310000},key,256);return `pbkdf2_sha256$310000$${bytesToBase64(salt)}$${bytesToBase64(new Uint8Array(bits))}`;}
+
+async function listUsers(db:SQLiteDBConnection):Promise<Response>{
+  const q=await db.query('SELECT id,username,display_name,role,active,last_login_at FROM local_users ORDER BY username');const out:any[]=[];
+  for(const u of q.values||[]){const a=await db.query(`SELECT a.school_id,a.preferred_language,s.name_en,s.name_mr FROM local_user_school_access a LEFT JOIN schools s ON s.id=a.school_id WHERE a.user_id=? AND a.active=1 ORDER BY s.name_en`,[u.id]);const access=a.values||[];out.push({...u,active:!!Number(u.active),school_ids:access.map((x:any)=>String(x.school_id)),school_access:access.map((x:any)=>({school_id:x.school_id,name_en:x.name_en,name_mr:x.name_mr})),preferred_language:access[0]?.preferred_language||'mr'});}
+  return jsonResponse(out);
+}
+
+function validRole(role:string):boolean{return ['SYSTEM_ADMIN','HEADMASTER','TEACHER'].includes(role);}
+async function replaceAccess(db:SQLiteDBConnection,userId:string,schoolIds:string[],preferred='mr'):Promise<void>{await db.run('DELETE FROM local_user_school_access WHERE user_id=?',[userId]);for(const sid of schoolIds){const s=await db.query('SELECT id FROM schools WHERE id=? AND active=1',[sid]);if(!s.values?.length)throw new Error(`SCHOOL_NOT_FOUND:${sid}`);await db.run(`INSERT INTO local_user_school_access (user_id,school_id,preferred_language,active,created_at,updated_at) VALUES (?,?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,[userId,sid,preferred==='en'?'en':'mr']);}}
+
+async function createUser(db:SQLiteDBConnection,init:RequestInit):Promise<Response>{const p=await bodyJson(init);const username=String(p.username||'').trim().toLowerCase();const role=String(p.role||'').toUpperCase();if(!username)return jsonResponse({detail:'USERNAME_REQUIRED'},422);if(!validRole(role))return jsonResponse({detail:'ROLE_INVALID'},422);const exists=await db.query('SELECT id FROM local_users WHERE username=?',[username]);if(exists.values?.length)return jsonResponse({detail:'USERNAME_EXISTS'},409);const id=uuid();await db.run(`INSERT INTO local_users (id,username,password_hash,display_name,role,active,created_at,updated_at) VALUES (?,?,?,?,?,1,CURRENT_TIMESTAMP,CURRENT_TIMESTAMP)`,[id,username,await passwordHash(String(p.password||'')),String(p.display_name||'').trim(),role]);if(role!=='SYSTEM_ADMIN')await replaceAccess(db,id,Array.isArray(p.school_ids)?p.school_ids.map(String):[],String(p.preferred_language||'mr'));return jsonResponse({ok:true,id});}
+
+async function updateUser(db:SQLiteDBConnection,userId:string,init:RequestInit):Promise<Response>{const found=await db.query('SELECT * FROM local_users WHERE id=?',[userId]);const row=found.values?.[0];if(!row)return jsonResponse({detail:'USER_NOT_FOUND'},404);const p=await bodyJson(init);const role=p.role!==undefined?String(p.role).toUpperCase():String(row.role);if(!validRole(role))return jsonResponse({detail:'ROLE_INVALID'},422);const display=p.display_name!==undefined?String(p.display_name):String(row.display_name||'');const active=p.active!==undefined?(p.active?1:0):Number(row.active);await db.run('UPDATE local_users SET display_name=?,role=?,active=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[display,role,active,userId]);if(role==='SYSTEM_ADMIN')await db.run('DELETE FROM local_user_school_access WHERE user_id=?',[userId]);else if(Array.isArray(p.school_ids))await replaceAccess(db,userId,p.school_ids.map(String),String(p.preferred_language||'mr'));return jsonResponse({ok:true,id:userId});}
+
+async function resetPassword(db:SQLiteDBConnection,userId:string,init:RequestInit):Promise<Response>{const p=await bodyJson(init);const found=await db.query('SELECT id FROM local_users WHERE id=?',[userId]);if(!found.values?.length)return jsonResponse({detail:'USER_NOT_FOUND'},404);await db.run('UPDATE local_users SET password_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?',[await passwordHash(String(p.password||'')),userId]);return jsonResponse({ok:true});}
+
+async function triggerGovernmentSeed(init:RequestInit):Promise<void>{const a=await tryAndroidMasterApiFetch('/ingredients',init);if(a&&!a.ok)throw new Error(await a.text());const b=await tryAndroidMasterApiFetch('/menus',init);if(b&&!b.ok)throw new Error(await b.text());}
+
+async function governmentStatus(db:SQLiteDBConnection,init:RequestInit):Promise<any>{await triggerGovernmentSeed(init);const meta=await db.query("SELECT value,updated_at FROM app_metadata WHERE key='maharashtra_pm_poshan_standard'");let importedMetadata:any=null;if(meta.values?.[0]?.value){try{importedMetadata=JSON.parse(String(meta.values[0].value));}catch{importedMetadata={raw:String(meta.values[0].value)}}importedMetadata.updated_at=meta.values[0].updated_at;}const ing=await db.query('SELECT COUNT(*) AS n FROM ingredients WHERE active=1');const menus=await db.query('SELECT COUNT(*) AS n FROM menus WHERE active=1');const recipes=await db.query("SELECT COUNT(*) AS n FROM recipes WHERE active=1 AND effective_from='2024-06-11'");const oil=await db.query("SELECT base_unit FROM ingredients WHERE code='OIL' LIMIT 1");const standardMenus=await db.query("SELECT COUNT(*) AS n FROM menus WHERE active=1 AND code IN ('VPUL-W13-MON','MDKH-W13-TUE','CHPUL-W13-WED','MBHAT-W13-THU','CHKH-W13-FRI','MUSAL-W13-SAT','MTPUL-W24-MON','MDVB-W24-TUE','SOYP-W24-WED','VPUL-W24-THU','MDKH-W24-FRI','MASP-W24-SAT')");return {ok:true,imported:!!importedMetadata&&Number(recipes.values?.[0]?.n||0)>0,source:{authority:'Government of Maharashtra',scheme:'PM POSHAN',gr_number:'शापोआ-2022/प्र.क्र.117/एस.डी.3',gr_date:'2024-06-11',effective_from:'2024-06-11',basis:'Maharashtra Government PM POSHAN per-student cooking norms'},imported_metadata:importedMetadata,active_ingredients:Number(ing.values?.[0]?.n||0),active_menus:Number(menus.values?.[0]?.n||0),menus_standardized:Number(standardMenus.values?.[0]?.n||0),government_recipe_rows:Number(recipes.values?.[0]?.n||0),oil_inventory_unit:oil.values?.[0]?.base_unit||null,norms:{class_1_5:{rice_g:100,pulse_g:20,vegetables_g:50,oil_g:5},class_6_8:{rice_g:150,pulse_g:30,vegetables_g:75,oil_g:7.5}}};}
+
+async function deviceSummary(init:RequestInit):Promise<Response>{const [i,l]=await Promise.all([androidApiFetch('/installation',{headers:init.headers||{}}),androidApiFetch('/license/status',{headers:init.headers||{}})]);if(!i.ok)return i;if(!l.ok)return l;const installation=await i.json();const license=await l.json();return jsonResponse({...installation,license});}
+
+export async function tryAndroidAdminApiFetch(path:string,init:RequestInit={}):Promise<Response|null>{
+  const method=String(init.method||'GET').toUpperCase();const url=new URL(path,'https://local.pmposhan.invalid');const route=url.pathname;
+  const relevant=route==='/admin/users'||route==='/admin/device'||route==='/admin/government-standard'||route==='/admin/government-standard/import'||route==='/admin/restore-standard-masters'||/^\/admin\/users\/[^/]+$/.test(route)||/^\/admin\/users\/[^/]+\/reset-password$/.test(route);if(!relevant)return null;
+  try{const auth=await requireAdmin(init);if(auth.response)return auth.response;const db=await getSharedAndroidDb();
+    if(route==='/admin/users'&&method==='GET')return listUsers(db);
+    if(route==='/admin/users'&&method==='POST')return createUser(db,init);
+    if(route==='/admin/device'&&method==='GET')return deviceSummary(init);
+    if(route==='/admin/government-standard'&&method==='GET')return jsonResponse(await governmentStatus(db,init));
+    if(route==='/admin/government-standard/import'&&method==='POST')return jsonResponse({...await governmentStatus(db,init),backup_created:''});
+    if(route==='/admin/restore-standard-masters'&&method==='POST'){await triggerGovernmentSeed(init);const ing=await db.query('SELECT COUNT(*) AS n FROM ingredients WHERE active=1');const menus=await db.query('SELECT COUNT(*) AS n FROM menus WHERE active=1');return jsonResponse({ok:true,ingredients_total:Number(ing.values?.[0]?.n||0),menus_total:Number(menus.values?.[0]?.n||0)});}
+    const reset=route.match(/^\/admin\/users\/([^/]+)\/reset-password$/);if(reset&&method==='POST')return resetPassword(db,decodeURIComponent(reset[1]),init);
+    const edit=route.match(/^\/admin\/users\/([^/]+)$/);if(edit&&method==='PUT')return updateUser(db,decodeURIComponent(edit[1]),init);
+    return jsonResponse({detail:'METHOD_NOT_ALLOWED'},405);
+  }catch(error){return jsonResponse({detail:error instanceof Error?error.message:String(error)},400);}
+}
