@@ -10,13 +10,10 @@ const typeImport = `import type { SQLiteDBConnection } from '${sqliteModule}';`;
 const sharedImport = `import { getSharedAndroidDb } from './androidSharedDb';`;
 
 function normalizeSharedImports(text) {
-  // Accept both the old direct CapacitorSQLite import and an already-patched file.
   text = text.replace(
     /import\s+\{[^\n]*CapacitorSQLite[^\n]*\}\s+from\s+['"]@capacitor-community\/sqlite['"];?\r?\n?/,
     '',
   );
-
-  // De-duplicate prior partial patches before adding the canonical pair.
   text = text.replace(
     /import\s+type\s+\{\s*SQLiteDBConnection\s*\}\s+from\s+['"]@capacitor-community\/sqlite['"];?\r?\n?/g,
     '',
@@ -25,7 +22,6 @@ function normalizeSharedImports(text) {
     /import\s+\{\s*getSharedAndroidDb\s*\}\s+from\s+['"]\.\/androidSharedDb['"];?\r?\n?/g,
     '',
   );
-
   return `${typeImport}\n${sharedImport}\n${text}`;
 }
 
@@ -136,6 +132,35 @@ const stockReceipt = `async function postReceipt(db:SQLiteDBConnection, init:Req
   return jsonResponse({ok:true,id:receiptId,receipt_no:receiptNo,lines:lines.length});
 }`;
 
+const stockAdjustment = `async function postAdjustment(db:SQLiteDBConnection, init:RequestInit, user:LocalUser): Promise<Response> {
+  if (!['HEADMASTER','SYSTEM_ADMIN'].includes(user.role)) return jsonResponse({detail:'HEADMASTER_OR_SYSTEM_ADMIN_REQUIRED'},403);
+  const body=await bodyJson(init);
+  const schoolId=String(body.school_id||''); const date=String(body.adjustment_date||'');
+  const adjustmentNo=String(body.adjustment_no||'').trim().slice(0,80); const ingredientId=String(body.ingredient_id||'');
+  const quantity=num(body.quantity); const reasonCode=String(body.reason_code||'').trim().slice(0,40);
+  if(!schoolId||!ingredientId||!isIsoDate(date)||!adjustmentNo||!reasonCode||Math.abs(quantity)<EPSILON) return jsonResponse({detail:'STOCK_ADJUSTMENT_FIELDS_INVALID'},400);
+  const access=await assertSchoolAccess(init,schoolId); if(access) return access;
+  const ing=await inventoryIngredient(db,ingredientId); if(!ing) return jsonResponse({detail:'Invalid inventory ingredient'},400);
+  const duplicate=await db.query('SELECT id FROM stock_adjustments WHERE school_id=? AND adjustment_no=?',[schoolId,adjustmentNo]);
+  if(duplicate.values?.length) return jsonResponse({detail:'Adjustment number already exists for this school'},409);
+  const available=await balance(db,schoolId,ingredientId);
+  if(quantity<0 && available+quantity < -EPSILON) return jsonResponse({detail:\`Adjustment would create negative stock. Available \${available} \${ing.base_unit}\`},409);
+
+  const id=uuid();
+  const tasks:any[]=[
+    {
+      statement:'INSERT INTO stock_adjustments (id,school_id,adjustment_date,adjustment_no,ingredient_id,quantity,reason_code,remarks,entered_by_subject,entered_by_username) VALUES (?,?,?,?,?,?,?,?,?,?)',
+      values:[id,schoolId,date,adjustmentNo,ingredientId,quantity,reasonCode,String(body.remarks||'').slice(0,1000)||null,user.id,user.username],
+    },
+    {
+      statement:'INSERT INTO stock_transactions (id,school_id,ingredient_id,transaction_date,transaction_type,quantity,reference_type,reference_id,reference_no,remarks,entered_by_subject,entered_by_username) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)',
+      values:[uuid(),schoolId,ingredientId,date,'ADJUSTMENT',quantity,'STOCK_ADJUSTMENT',id,adjustmentNo,String(body.remarks||reasonCode).slice(0,1000),user.id,user.username],
+    },
+  ];
+  await db.executeTransaction(tasks);
+  return jsonResponse({ok:true,id,adjustment_no:adjustmentNo,quantity,unit:ing.base_unit,balance_after:available+quantity});
+}`;
+
 const stockPhysical = `async function postPhysical(db:SQLiteDBConnection, init:RequestInit, user:LocalUser): Promise<Response> {
   if (!['HEADMASTER','SYSTEM_ADMIN'].includes(user.role)) return jsonResponse({detail:'HEADMASTER_OR_SYSTEM_ADMIN_REQUIRED'},403);
   const body=await bodyJson(init);
@@ -238,6 +263,13 @@ writeIfChanged('androidStockRuntime.ts', text => {
   );
   text = replaceFunctionBlock(
     text,
+    'async function postAdjustment(db:SQLiteDBConnection, init:RequestInit, user:LocalUser): Promise<Response> {',
+    'async function listPhysical(db:SQLiteDBConnection, schoolId:string): Promise<Response> {',
+    stockAdjustment,
+    'androidStockRuntime.ts',
+  );
+  text = replaceFunctionBlock(
+    text,
     'async function postPhysical(db:SQLiteDBConnection, init:RequestInit, user:LocalUser): Promise<Response> {',
     'export async function tryAndroidStockApiFetch(path:string, init:RequestInit={}): Promise<Response|null> {',
     stockPhysical,
@@ -255,11 +287,14 @@ for (const fileName of ['androidRuntime.ts','androidMasterRuntime.ts','androidOp
 }
 
 const stockText = fs.readFileSync(path.join(src, 'androidStockRuntime.ts'), 'utf8');
-if (stockText.includes('beginTransaction()')) {
-  throw new Error('androidStockRuntime.ts: manual nested transaction remains after patch');
+for (const forbidden of ['beginTransaction()', 'commitTransaction()', 'rollbackTransaction()']) {
+  if (stockText.includes(forbidden)) {
+    throw new Error(`androidStockRuntime.ts: manual stock transaction remains after patch: ${forbidden}`);
+  }
 }
-if (!stockText.includes('executeTransaction(tasks)')) {
-  throw new Error('androidStockRuntime.ts: atomic stock transaction patch missing');
+const atomicCount = (stockText.match(/executeTransaction\(tasks\)/g) || []).length;
+if (atomicCount < 3) {
+  throw new Error(`androidStockRuntime.ts: expected 3 atomic stock write paths, found ${atomicCount}`);
 }
 
 console.log('ANDROID_SQLITE_SINGLE_CONNECTION_PATCH_OK');
