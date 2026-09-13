@@ -89,7 +89,7 @@ import java.io.OutputStream;
 public class NativeFilePlugin extends Plugin {
     private String safeName(String raw) {
         String name = raw == null ? "PM_POSHAN_Report" : raw.trim();
-        name = name.replaceAll("[\\\\/:*?\"<>|]", "_");
+        name = name.replaceAll("[\\\\/:*?<>|]", "_").replace('"', '_');
         if (name.isEmpty()) name = "PM_POSHAN_Report";
         return name;
     }
